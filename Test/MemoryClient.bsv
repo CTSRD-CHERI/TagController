@@ -167,7 +167,7 @@ endinstance
 
 // Memory client module =======================================================
 
-module mkMemoryClient#(AXISlave#(idWidth, addrWidth, 129, 0) axiSlave) (MemoryClient)
+module mkMemoryClient#(AXISlave#(idWidth, addrWidth, 129, 0, 0, 0, 0, 0) axiSlave) (MemoryClient)
   provisos (Add#(a__, addrWidth, 64), Add#(b__, idWidth, 8));
 
   // Response FIFO

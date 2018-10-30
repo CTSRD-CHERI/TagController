@@ -33,14 +33,22 @@ interface AXITagShim#(
   numeric type id_,
   numeric type addr_,
   numeric type data_,
-  numeric type user_);
-  interface AXIMaster#(id_, addr_, data_, user_) master;
-  interface AXISlave#(id_, addr_, TAdd#(data_,TDiv#(data_,128)), user_) slave;
+  numeric type awuser_,
+  numeric type wuser_,
+  numeric type buser_,
+  numeric type aruser_,
+  numeric type ruser_);
+  interface AXIMaster#(
+    id_, addr_, data_, awuser_, wuser_, buser_, aruser_, ruser_
+  ) master;
+  interface AXISlave#(
+    id_, addr_, TAdd#(data_,TDiv#(data_,128)), awuser_, wuser_, buser_, aruser_, ruser_
+  ) slave;
 endinterface
 
-module mkDummyDUT(AXITagShim#(0,addrWidth,128,0));
-  AXIShim#(0, addrWidth, 129, 0) shimSlave  <- mkAXIShim;
-  AXIShim#(0, addrWidth, 128, 0) shimMaster <- mkAXIShim;
+module mkDummyDUT(AXITagShim#(0,addrWidth,128,0,0,0,0,0));
+  AXIShim#(0, addrWidth, 129, 0, 0, 0, 0, 0) shimSlave  <- mkAXIShim;
+  AXIShim#(0, addrWidth, 128, 0, 0, 0, 0, 0) shimMaster <- mkAXIShim;
   
   rule getWrite;
     let awreq <- shimSlave.master.aw.get;

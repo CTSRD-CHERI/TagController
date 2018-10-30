@@ -56,11 +56,11 @@ module mkModelDRAMGeneric#
                    , Bit#(128)
                    ) ram                      // For storage
          )
-         (AXISlave#(8, addrWidth, 128, 0))
+         (AXISlave#(8, addrWidth, 128, 0, 0, 0, 0, 0))
          provisos (Add#(wordAddrWidth, 4, addrWidth)
          );
          
-  AXIShim#(8, addrWidth, 128, 0) shim <- mkAXIShim();
+  AXIShim#(8, addrWidth, 128, 0, 0, 0, 0, 0) shim <- mkAXIShim();
 
   // Slave interface
   FIFOF#(DRAMReq#(addrWidth)) preReqFifo <- mkSizedFIFOF(maxOutstandingReqs);
@@ -203,7 +203,7 @@ endmodule
 // Version using a standard register file
 module mkModelDRAM#
          ( Integer maxOutstandingReqs )       // Max outstanding requests
-         (AXISlave#(8, addrWidth, 128, 0))
+         (AXISlave#(8, addrWidth, 128, 0, 0, 0, 0, 0))
          provisos (Add#(wordAddrWidth, 4, addrWidth));
   RegFile#(Bit#(wordAddrWidth), Bit#(128)) ram <- mkRegFileFull;
   let dram <- mkModelDRAMGeneric(maxOutstandingReqs, ram);
@@ -214,7 +214,7 @@ endmodule
 // the advantage of being efficiently resettable to a predefined state.
 module mkModelDRAMAssoc#
          ( Integer maxOutstandingReqs )         // Max outstanding requests
-         (AXISlave#(8, addrWidth, 128, 0))
+         (AXISlave#(8, addrWidth, 128, 0, 0, 0, 0, 0))
          provisos (Add#(wordAddrWidth, 4, addrWidth));
   RegFile#(Bit#(wordAddrWidth), Bit#(128)) ram <- mkRegFileAssoc;
   let dram <- mkModelDRAMGeneric(maxOutstandingReqs, ram);

@@ -50,16 +50,15 @@ import FIFO::*;
 
 interface TagControllerAXI#(
   numeric type addr_,
-  numeric type data_,
-  numeric type user_);
-  interface AXIMaster#(8, addr_, data_, user_) master;
-  interface AXISlave#(4, addr_, TAdd#(data_,TDiv#(data_,128)), user_) slave;
+  numeric type data_);
+  interface AXIMaster#(8, addr_, data_, 0, 0, 0, 0, 0) master;
+  interface AXISlave#(4, addr_, TAdd#(data_,TDiv#(data_,128)), 0, 0, 0, 0, 0) slave;
 endinterface
 
-module mkTagControllerAXI(TagControllerAXI#(32,128,0));
+module mkTagControllerAXI(TagControllerAXI#(32,128));
   TagControllerIfc tagCon <- mkTagController();
-  AXIShim#(4, 32, 129, 0) shimSlave  <- mkAXIShim;
-  AXIShim#(8, 32, 128, 0) shimMaster <- mkAXIShim;
+  AXIShim#(4, 32, 129, 0, 0, 0, 0, 0) shimSlave  <- mkAXIShim;
+  AXIShim#(8, 32, 128, 0, 0, 0, 0, 0) shimMaster <- mkAXIShim;
   FIFO#(Bit#(0)) limiter <- mkFIFO1;
   
   // Rules to feed the tag controller from the slave AXI interface
