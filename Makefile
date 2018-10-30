@@ -31,7 +31,7 @@
 BSC = bsc
 
 BLUEUTILSDIR = ./BlueStuff
-BSVPATH = +:BlueStuff:Test:bluecheck:BlueStuff/BlueBasics:BlueStuff/BlueUtils:BlueStuff/AXI:TagController:TagController/CacheCore
+BSVPATH = +:BlueStuff:Test:Test/bluecheck:BlueStuff/BlueBasics:BlueStuff/BlueUtils:BlueStuff/AXI:TagController:TagController/CacheCore
 
 BSCFLAGS = -p $(BSVPATH) -D MEM128 -D CAP128 -D BLUESIM
 
@@ -63,7 +63,7 @@ SIMTESTS = $(addprefix sim, $(notdir $(basename $(SIMTESTSSRC))))
 
 all: simTest
 
-simTest: $(TESTSDIR)/TestMemTop.bsv *.bsv
+simTest: $(TESTSDIR)/TestMemTop.bsv
 	mkdir -p $(OUTPUTDIR)/$@-info $(BDIR) $(SIMDIR)
 	$(BSC) -info-dir $(OUTPUTDIR)/$@-info -simdir $(SIMDIR) $(BSCFLAGS) -sim -g $(TOPMODULE) -u $<
 	CC=$(CC) CXX=$(CXX) $(BSC) -simdir $(SIMDIR) $(BSCFLAGS) -sim -e $(TOPMODULE) -o $(OUTPUTDIR)/$@
