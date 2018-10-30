@@ -122,11 +122,13 @@ module mkTagController(TagControllerIfc);
 
   // forwards tag lookup requests to the memory interface
   rule forwardLookupReqs(tagLookup.memory.request.canGet() && mReqs.notFull());
+    /*
     debug2("tagcontroller",
       $display(
         "<time %0t TagController> Injecting request from tag lookup engine: ",
         $time, fshow(tagLookup.memory.request.peek())
     ));
+    */
     CheriMemRequest r <- tagLookup.memory.request.get();
     if (r.operation matches tagged Write .wop) begin
       mReqs.enq(r);
@@ -187,7 +189,7 @@ module mkTagController(TagControllerIfc);
     interface CheckedPut request;
       method Bool canPut() = slvCanPut;
       method Action put(CheriMemRequest req) if (slvCanPut);
-        debug2("tagcontroller", $display("<time %0t TagController> New request: ", $time, fshow(req)));
+        //debug2("tagcontroller", $display("<time %0t TagController> New request: ", $time, fshow(req)));
         mReqs.enq(req);
         `ifndef NOTAG
           tagLookup.cache.request.put(req);
@@ -219,7 +221,7 @@ module mkTagController(TagControllerIfc);
           end else frame <= frame + 1; // for non last flits, increment frame
         end else frame <= 0;
         `endif
-        debug2("tagcontroller", $display("<time %0t TagController> Returning response: ", $time, fshow(resp)));
+        //debug2("tagcontroller", $display("<time %0t TagController> Returning response: ", $time, fshow(resp)));
         return resp;
       endmethod
     endinterface
@@ -239,13 +241,13 @@ module mkTagController(TagControllerIfc);
           mRsps.enq(r);
         `else
           MemReqType reqType = (r.masterID == mID) ? TagLookupReq : StdReq;
-          debug2("tagcontroller", $display("<time %0t TagController> response from memory: source=%x ", $time, reqType, fshow(r)));
+          //debug2("tagcontroller", $display("<time %0t TagController> response from memory: source=%x ", $time, reqType, fshow(r)));
           if (reqType == TagLookupReq) begin
             tagLookup.memory.response.put(r);
-            debug2("tagcontroller", $display("<time %0t TagController> tag response", $time));
+            //debug2("tagcontroller", $display("<time %0t TagController> tag response", $time));
           end else begin
             mRsps.enq(r);
-            debug2("tagcontroller", $display("<time %0t TagController> memory response", $time));
+            //debug2("tagcontroller", $display("<time %0t TagController> memory response", $time));
           end
         `endif
       endmethod
