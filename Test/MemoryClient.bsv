@@ -1,5 +1,6 @@
 /* Copyright 2015 Matthew Naylor
  * Copyright 2018 Jonathan Woodruff
+ * Copyright 2018 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -120,10 +121,10 @@ endfunction
 // Functions ==================================================================
 
 // Convert from Data to 64-bit data
-function Bit#(129) fromData(Data x) = {x[16],zeroExtend(x)};
+function Tuple2#(Bit#(1), Bit#(128)) fromData(Data x) = tuple2(x[16],zeroExtend(x));
 
 // Convert from 64-bit data to Data
-function Data toData(Bit#(129) x) = {x[128],x[15:0]};
+function Data toData(Bit#(1) t, Bit#(128) d) = {t, d[15:0]};
 
 // Show addresses
 instance FShow#(Addr);
@@ -167,7 +168,7 @@ endinstance
 
 // Memory client module =======================================================
 
-module mkMemoryClient#(AXISlave#(idWidth, addrWidth, 129, 0, 0, 0, 0, 0) axiSlave) (MemoryClient)
+module mkMemoryClient#(AXISlave#(idWidth, addrWidth, 128, 0, 1, 0, 0, 1) axiSlave) (MemoryClient)
   provisos (Add#(a__, addrWidth, 64), Add#(b__, idWidth, 8));
 
   // Response FIFO
@@ -190,7 +191,7 @@ module mkMemoryClient#(AXISlave#(idWidth, addrWidth, 129, 0, 0, 0, 0, 0) axiSlav
   rule handleReadResponses (nextIsLoad && axiSlave.r.canGet);
     outstandingFIFO.deq;
     let r <- axiSlave.r.get();
-    responseFIFO.enq(DataResponse(toData(r.rdata)));
+    responseFIFO.enq(DataResponse(toData(r.ruser, r.rdata)));
   endrule
 
   // Functions
@@ -221,8 +222,10 @@ module mkMemoryClient#(AXISlave#(idWidth, addrWidth, 129, 0, 0, 0, 0, 0) axiSlav
       addrReq.awaddr = truncate(fullAddr);
       axiSlave.aw.put(addrReq);
 
-      WFlit#(129, 0) dataReq = defaultValue;
-      dataReq.wdata = fromData(data);
+      WFlit#(128, 1) dataReq = defaultValue;
+      match {.t, .d} = fromData(data);
+      dataReq.wuser = t;
+      dataReq.wdata = d;
       axiSlave.w.put(dataReq);
 
       outstandingFIFO.enq(OutstandingMemInstr{

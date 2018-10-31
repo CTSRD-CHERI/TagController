@@ -1,5 +1,6 @@
 /*-
  * Copyright (c) 2018 Jonathan Woodruff
+ * Copyright (c) 2018 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -32,31 +33,31 @@ import AXI4_AXI4Lite_Types :: *;
 import MemTypesCHERI::*;
 
 typedef struct {
-  AWFlit#(id_, addr_, user_) aw;
-  WFlit#(data_, user_) w;
-} WriteReqFlit#(numeric type id_, numeric type addr_, numeric type data_, numeric type user_)
+  AWFlit#(id_, addr_, 0) aw;
+  WFlit#(data_, tag_) w;
+} WriteReqFlit#(numeric type id_, numeric type addr_, numeric type data_, numeric type tag_)
 deriving (Bits, FShow);
 
 typedef union tagged {
-  WriteReqFlit#(id_, addr_, data_, user_) Write;
-  ARFlit#(id_, addr_, user_) Read;
-} ReqFlit#(numeric type id_, numeric type addr_, numeric type data_, numeric type user_)
+  WriteReqFlit#(id_, addr_, data_, tag_) Write;
+  ARFlit#(id_, addr_, 0) Read;
+} ReqFlit#(numeric type id_, numeric type addr_, numeric type data_, numeric type tag_)
 deriving (Bits, FShow);
-instance DefaultValue#(ReqFlit#(id_, addr_, data_, user_));
+instance DefaultValue#(ReqFlit#(id_, addr_, data_, tag_));
   function defaultValue = tagged Read defaultValue;
 endinstance
 
 typedef union tagged {
-  BFlit#(id_, user_) Write;
-  RFlit#(id_, data_, user_) Read;
-} RspFlit#(numeric type id_, numeric type data_, numeric type user_)
+  BFlit#(id_, 0) Write;
+  RFlit#(id_, data_, tag_) Read;
+} RspFlit#(numeric type id_, numeric type data_, numeric type tag_)
 deriving (Bits, FShow);
-instance DefaultValue#(RspFlit#(id_, data_, user_));
+instance DefaultValue#(RspFlit#(id_, data_, tag_));
   function defaultValue = tagged Write defaultValue;
 endinstance
 
-typedef ReqFlit#(4, addr_, 129, 0) MemReq#(numeric type addr_);
-typedef RspFlit#(4, 129, 0)        MemRsp;
+typedef ReqFlit#(4, addr_, 128, 1) MemReq#(numeric type addr_);
+typedef RspFlit#(4, 128, 1)        MemRsp;
 
 typedef ReqFlit#(8, addr_, 128, 0) DRAMReq#(numeric type addr_);
 typedef RspFlit#(8, 128, 0)        DRAMRsp;
@@ -76,7 +77,7 @@ function CheriMemRequest axi2mem_req(MemReq#(32) mr);
                         conditional: False, // For now?
                         byteEnable: unpack(truncate(w.w.wstrb)),
                         bitEnable: -1,
-                        data: Data{cap: unpack(truncateLSB(w.w.wdata)), data: truncate(w.w.wdata)},
+                        data: Data{cap: unpack(w.w.wuser), data: truncate(w.w.wdata)},
                         last: w.w.wlast
                     }
       };
@@ -181,10 +182,10 @@ function MemRsp mem2axi_rsp(CheriMemResponse mr);
     tagged Read .r:
       rsp = tagged Read RFlit{
         rid: truncate(mr.transactionID),
-        rdata: {pack(mr.data.cap), mr.data.data},
+        rdata: mr.data.data,
         rresp: OKAY,
         rlast: r.last,
-        ruser: ?
+        ruser: pack(mr.data.cap)
       };
   endcase
   return rsp;

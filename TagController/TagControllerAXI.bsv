@@ -1,5 +1,6 @@
 /*-
  * Copyright (c) 2018 Jonathan Woodruff
+ * Copyright (c) 2018 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -52,12 +53,12 @@ interface TagControllerAXI#(
   numeric type addr_,
   numeric type data_);
   interface AXIMaster#(8, addr_, data_, 0, 0, 0, 0, 0) master;
-  interface AXISlave#(4, addr_, TAdd#(data_,TDiv#(data_,128)), 0, 0, 0, 0, 0) slave;
+  interface AXISlave#(4, addr_, data_, 0, TDiv#(data_, 128), 0, 0, TDiv#(data_, 128)) slave;
 endinterface
 
 module mkTagControllerAXI(TagControllerAXI#(32,128));
   TagControllerIfc tagCon <- mkTagController();
-  AXIShim#(4, 32, 129, 0, 0, 0, 0, 0) shimSlave  <- mkAXIShim;
+  AXIShim#(4, 32, 128, 0, 1, 0, 0, 1) shimSlave  <- mkAXIShim;
   AXIShim#(8, 32, 128, 0, 0, 0, 0, 0) shimMaster <- mkAXIShim;
   FIFO#(Bit#(0)) limiter <- mkFIFO1;
   
