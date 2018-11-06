@@ -64,6 +64,7 @@ module mkTagControllerAXI(TagControllerAXI#(32,128));
   
   // Rules to feed the tag controller from the slave AXI interface
   // Ready if there is no read request or if the write request id is first.
+  (* descending_urgency = "passCacheRead, passCacheWrite" *)
   rule passCacheWrite(!shimSlave.master.ar.canGet || ((shimSlave.master.ar.peek.arid-shimSlave.master.aw.peek.awid)<4));
     let awreq <- shimSlave.master.aw.get;
     let wreq <- shimSlave.master.w.get;
@@ -104,6 +105,7 @@ module mkTagControllerAXI(TagControllerAXI#(32,128));
     endcase
     debug2("axiBridge", $display("Memory request ", fshow(ar)));
   endrule
+  (* descending_urgency = "passMemoryResponseRead, passMemoryResponseWrite" *)
   rule passMemoryResponseWrite;
     let rsp <- shimMaster.slave.b.get;
     CheriMemResponse mr = axi2mem_rsp(Write(rsp));
