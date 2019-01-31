@@ -1,6 +1,6 @@
 /*-
  * Copyright (c) 2018 Jonathan Woodruff
- * Copyright (c) 2018 Alexandre Joannou
+ * Copyright (c) 2018-2019 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -65,9 +65,9 @@ module mkTagControllerAXI(TagControllerAXI#(32,128));
   // Rules to feed the tag controller from the slave AXI interface
   // Ready if there is no read request or if the write request id is first.
   (* descending_urgency = "passCacheRead, passCacheWrite" *)
-  rule passCacheWrite(!shimSlave.master.ar.canGet || ((shimSlave.master.ar.peek.arid-shimSlave.master.aw.peek.awid)<4));
-    let awreq <- shimSlave.master.aw.get;
-    let wreq <- shimSlave.master.w.get;
+  rule passCacheWrite(!shimSlave.master.ar.canPeek || ((shimSlave.master.ar.peek.arid-shimSlave.master.aw.peek.awid)<4));
+    let awreq <- get(shimSlave.master.aw);
+    let wreq <- get(shimSlave.master.w);
     tagCon.cache.request.put(
       axi2mem_req(Write(WriteReqFlit{aw: awreq, w: wreq}))
     );
@@ -75,8 +75,8 @@ module mkTagControllerAXI(TagControllerAXI#(32,128));
     debug2("axiBridge", $display("TagController write request ", fshow(awreq), fshow(wreq)));
   endrule
   // Ready if there is no write request or if the read request id is first.
-  rule passCacheRead(!shimSlave.master.aw.canGet || ((shimSlave.master.aw.peek.awid-shimSlave.master.ar.peek.arid)<4));
-    let ar <- shimSlave.master.ar.get;
+  rule passCacheRead(!shimSlave.master.aw.canPeek || ((shimSlave.master.aw.peek.awid-shimSlave.master.ar.peek.arid)<4));
+    let ar <- get(shimSlave.master.ar);
     tagCon.cache.request.put(axi2mem_req(Read(ar)));
     limiter.enq(?);
     debug2("axiBridge", $display("TagController read request ", fshow(ar)));
@@ -107,13 +107,13 @@ module mkTagControllerAXI(TagControllerAXI#(32,128));
   endrule
   (* descending_urgency = "passMemoryResponseRead, passMemoryResponseWrite" *)
   rule passMemoryResponseWrite;
-    let rsp <- shimMaster.slave.b.get;
+    let rsp <- get(shimMaster.slave.b);
     CheriMemResponse mr = axi2mem_rsp(Write(rsp));
     tagCon.memory.response.put(mr);
     debug2("axiBridge", $display("Memory write response ", fshow(rsp)));
   endrule
   rule passMemoryResponseRead;
-    let rsp <- shimMaster.slave.r.get;
+    let rsp <- get(shimMaster.slave.r);
     CheriMemResponse mr = axi2mem_rsp(Read(rsp));
     tagCon.memory.response.put(mr);
     debug2("axiBridge", $display("Memory read response ", fshow(rsp)));
