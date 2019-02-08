@@ -1,6 +1,6 @@
 /*-
  * Copyright (c) 2018 Jonathan Woodruff
- * Copyright (c) 2018 Alexandre Joannou
+ * Copyright (c) 2018-2019 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -33,14 +33,14 @@ import AXI4_AXI4Lite_Types :: *;
 import MemTypesCHERI::*;
 
 typedef struct {
-  AWFlit#(id_, addr_, 0) aw;
-  WFlit#(data_, tag_) w;
+  AXI4_AWFlit#(id_, addr_, 0) aw;
+  AXI4_WFlit#(data_, tag_) w;
 } WriteReqFlit#(numeric type id_, numeric type addr_, numeric type data_, numeric type tag_)
 deriving (Bits, FShow);
 
 typedef union tagged {
   WriteReqFlit#(id_, addr_, data_, tag_) Write;
-  ARFlit#(id_, addr_, 0) Read;
+  AXI4_ARFlit#(id_, addr_, 0) Read;
 } ReqFlit#(numeric type id_, numeric type addr_, numeric type data_, numeric type tag_)
 deriving (Bits, FShow);
 instance DefaultValue#(ReqFlit#(id_, addr_, data_, tag_));
@@ -48,8 +48,8 @@ instance DefaultValue#(ReqFlit#(id_, addr_, data_, tag_));
 endinstance
 
 typedef union tagged {
-  BFlit#(id_, 0) Write;
-  RFlit#(id_, data_, tag_) Read;
+  AXI4_BFlit#(id_, 0) Write;
+  AXI4_RFlit#(id_, data_, tag_) Read;
 } RspFlit#(numeric type id_, numeric type data_, numeric type tag_)
 deriving (Bits, FShow);
 instance DefaultValue#(RspFlit#(id_, data_, tag_));
@@ -91,7 +91,7 @@ function CheriMemRequest axi2mem_req(MemReq#(32) mr);
                         uncached: (r.arcache < 4), // All options less than 4 look like uncached.
                         linked: False, // For now?
                         noOfFlits: unpack(truncate(r.arlen)),
-                        bytesPerFlit: unpack(r.arsize)
+                        bytesPerFlit: unpack(pack(r.arsize))
                     }
       };
   endcase
@@ -103,20 +103,20 @@ function DRAMReq#(32) mem2axi_req(CheriMemRequest mr);
   case (mr.operation) matches
     tagged Write .w: begin
       req = tagged Write WriteReqFlit{
-        aw: AWFlit{
+        aw: AXI4_AWFlit{
           awid: pack(getReqId(mr)),
           awaddr: truncate(pack(mr.addr)),
           awlen: 0,
           awsize: 4, // 16 bytes
           awburst: INCR,
-          awlock: False,
+          awlock: NORMAL,
           awcache: ((w.uncached) ? 0:15), // unached or fully cached
           awprot: 0,
           awqos: 0,
           awregion: 0,
           awuser: ?
         },
-        w: WFlit{
+        w: AXI4_WFlit{
           wdata: w.data.data,
           wstrb: zeroExtend(pack(w.byteEnable)),
           wlast: w.last,
@@ -125,13 +125,13 @@ function DRAMReq#(32) mem2axi_req(CheriMemRequest mr);
       };
     end
     tagged Read .r:
-      req = tagged Read ARFlit{
+      req = tagged Read AXI4_ARFlit{
         arid: pack(getReqId(mr)),
         araddr: truncate(pack(mr.addr)),
         arlen: zeroExtend(pack(r.noOfFlits)),
-        arsize: pack(r.bytesPerFlit),
+        arsize: unpack(pack(r.bytesPerFlit)),
         arburst: INCR,
-        arlock: False,
+        arlock: NORMAL,
         arcache: ((r.uncached) ? 0:15), // unached or fully cached
         arprot: 0,
         arqos: 0,
@@ -173,14 +173,14 @@ function MemRsp mem2axi_rsp(CheriMemResponse mr);
   MemRsp rsp = defaultValue;
   case (mr.operation) matches
     tagged Write .w: begin
-      rsp = tagged Write BFlit{
+      rsp = tagged Write AXI4_BFlit{
         bid: truncate(mr.transactionID),
         bresp: OKAY,
         buser: ?
       };
     end
     tagged Read .r:
-      rsp = tagged Read RFlit{
+      rsp = tagged Read AXI4_RFlit{
         rid: truncate(mr.transactionID),
         rdata: mr.data.data,
         rresp: OKAY,
