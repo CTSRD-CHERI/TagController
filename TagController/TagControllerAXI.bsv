@@ -58,8 +58,8 @@ endinterface
 
 module mkTagControllerAXI(TagControllerAXI#(32,128));
   TagControllerIfc tagCon <- mkTagController();
-  AXI4_Shim#(4, 32, 128, 0, 1, 0, 0, 1) shimSlave  <- mkAXI4Shim;
-  AXI4_Shim#(8, 32, 128, 0, 0, 0, 0, 0) shimMaster <- mkAXI4Shim;
+  AXI4_Shim#(4, 32, 128, 0, 1, 0, 0, 1) shimSlave  <- mkAXI4ShimUGSizedFIFOF4;
+  AXI4_Shim#(8, 32, 128, 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimUGSizedFIFOF4;
   FIFO#(Bit#(0)) limiter <- mkFIFO1;
   
   // Rules to feed the tag controller from the slave AXI interface

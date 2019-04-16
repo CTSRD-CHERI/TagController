@@ -202,7 +202,7 @@ module mkMemoryClient#(AXISlave#(idWidth, addrWidth, 128, 0, 1, 0, 0, 1) axiSlav
       addrReq.arid = truncate(idCount);
       idCount <= idCount + 1;
       addrReq.araddr = truncate(fullAddr);
-      addrReq.arsize = 4;
+      addrReq.arsize = 16;
       addrReq.arcache = 4'b1011;
       axiSlave.ar.put(addrReq);
 

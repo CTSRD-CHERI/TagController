@@ -107,7 +107,7 @@ function DRAMReq#(32) mem2axi_req(CheriMemRequest mr);
           awid: pack(getReqId(mr)),
           awaddr: truncate(pack(mr.addr)),
           awlen: 0,
-          awsize: 4, // 16 bytes
+          awsize: 16, // 16 bytes
           awburst: INCR,
           awlock: NORMAL,
           awcache: ((w.uncached) ? 0:15), // unached or fully cached
