@@ -411,7 +411,7 @@ instance FShow#(MemoryResponse#(a,b,c))
                 $format(" | last: ") + fshow(rop.last) +
                 $format(" | data: ") + fshow(rsp.data)
             );
-            tagged Write .wop: return (
+            tagged Write: return (
                 $format("Write MemoryResponse - ") +
                 $format("masterID: %0d", rsp.masterID) +
                 $format(" | transactionID: %0d", rsp.transactionID) +

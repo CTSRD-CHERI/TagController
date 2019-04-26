@@ -312,7 +312,7 @@ module mkCacheCore#(Bit#(16) cacheId,
   CheriMemResponse memResp = memRsps.first;
   ReqId memRspId = getRespId(memResp);
   Bool memRspIsWrite = False;
-  if (memResp.operation matches tagged Write .wop) memRspIsWrite = True;
+  if (memResp.operation matches tagged Write) memRspIsWrite = True;
   Bool readRegMatchesMemResp = readReqReg.d.outId==getRespId(memResp) && // If the IDs match
                                (readReqReg.v || (!oneInFlight)); // If the readReqReg is valid (but only check this if there is oneInFlight as the ids matching is sufficient otherwise).
   Bool memRspHasResponseRecord = memRsps.notEmpty && ((oneInFlight) ? readRegMatchesMemResp:readReqs.isMember(memRspId).v);
@@ -815,11 +815,11 @@ module mkCacheCore#(Bit#(16) cacheId,
                 debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> received memory response ", $time, cacheId, fshow(memResp)));
                 ct.last = last;
               end
-              tagged Write .wr &&& exeThisReq: begin
+              tagged Write &&& exeThisReq: begin
                 memRsps.deq;
                 orderer.mastRsp(getRespId(memResp), True, last);
                 forceResponse = True;
-                debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Removing %x from ID table for Write response", $time, cacheId, memRspId, fshow(wr)));
+                debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Removing %x from ID table for Write response", $time, cacheId, memRspId));
                 if (!oneInFlight) readReqs.remove(memRspId);
                 newReadReqReg.v = False;
               end
@@ -962,7 +962,7 @@ module mkCacheCore#(Bit#(16) cacheId,
           end
           
           respValid = True;
-          if (cacheResp.operation matches tagged Write .wop &&& responseBehaviour==OnlyReadResponses) respValid = False;
+          if (cacheResp.operation matches tagged Write &&& responseBehaviour==OnlyReadResponses) respValid = False;
           reportResponse = True;
           if (thisReqLast) begin
             if (getRespId(cacheResp) == newReadReqReg.d.inId) newReadReqReg.d.inDone = True;

@@ -172,7 +172,7 @@ endfunction
 function MemRsp mem2axi_rsp(CheriMemResponse mr);
   MemRsp rsp = defaultValue;
   case (mr.operation) matches
-    tagged Write .w: begin
+    tagged Write: begin
       rsp = tagged Write AXI4_BFlit{
         bid: truncate(mr.transactionID),
         bresp: OKAY,
