@@ -93,12 +93,12 @@ function Bool andBool (Bool x, Bool y) = (x && y);
 
 // covered region include DRAM and BROM
 // starting address of the covered region
-CheriPhyAddr coveredStrtAddr = unpack(40'h0000000000);
+CheriPhyAddr coveredStrtAddr = unpack(zeroExtend(40'h80000000));
 // ending address of the covered region
-CheriPhyAddr coveredEndAddr  = unpack(40'h0080010000);
+CheriPhyAddr coveredEndAddr  = unpack(zeroExtend(40'hBFFFFFFF));
 // tag table is at top of DRAM
 // starting address of the tags table
-CheriPhyAddr tagTabStrtAddr  = unpack(40'h003EFFC000);
+CheriPhyAddr tagTabStrtAddr  = unpack(zeroExtend(40'hBF000000));
 
 // mkTagLookup module definition
 ///////////////////////////////////////////////////////////////////////////////

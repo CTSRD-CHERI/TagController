@@ -126,27 +126,28 @@ endinstance
 `elsif CAP64
   BytesPerFlit capBytesPerFlit = BYTE_8;
 `endif
+typedef 40 AddrWidth;
 `ifdef USECAP
   typedef TDiv#(CheriBusBytes,CapBytes) CapsPerFlit;
   typedef Vector#(CapsPerFlit,Bool) CapTags;
-  typedef Bit#(TSub#(40,TLog#(CapBytes))) CapNumber;
+  typedef Bit#(TSub#(AddrWidth,TLog#(CapBytes))) CapNumber;
   typedef struct {
     CapNumber capNumber;
     Bit#(TLog#(CapBytes))           offset;
   } CheriCapAddress deriving (Bits, Eq, Bounded, FShow);
 `endif
 typedef TMul#(CheriBusBytes,8) CheriDataWidth;
-typedef TSub#(40,TLog#(CheriBusBytes)) CheriLineAddrWidth;
-typedef PhyLineNumber#(40,CheriBusBytes)  CheriPhyLineNumber;
-typedef PhyByteAddress#(40,CheriBusBytes) CheriPhyAddr;
-typedef PhyBitAddress#(40,CheriBusBytes) CheriPhyBitAddr;
+typedef TSub#(AddrWidth,TLog#(CheriBusBytes)) CheriLineAddrWidth;
+typedef PhyLineNumber#(AddrWidth,CheriBusBytes)  CheriPhyLineNumber;
+typedef PhyByteAddress#(AddrWidth,CheriBusBytes) CheriPhyAddr;
+typedef PhyBitAddress#(AddrWidth,CheriBusBytes) CheriPhyBitAddr;
 typedef PhyByteOffset#(CheriBusBytes) CheriPhyByteOffset;
 typedef PhyBitOffset#(CheriBusBytes)  CheriPhyBitOffset;
-typedef PhyByteAddress#(40,8) CheriPeriphAddr;
+typedef PhyByteAddress#(AddrWidth,8) CheriPeriphAddr;
 typedef TLog#(TMul#(CheriBusBytes,4)) LogLine;
 Bit#(4) logLineMinusOne = fromInteger(valueOf(TSub#(LogLine, 1)));
 typedef UInt#(TLog#(MaxNoOfFlits)) Flit;
-typedef Bit#(TSub#(40,TAdd#(TLog#(CheriBusBytes),2))) Line;
+typedef Bit#(TSub#(AddrWidth,TAdd#(TLog#(CheriBusBytes),2))) Line;
 
 // bytes per flit
 typedef enum {
