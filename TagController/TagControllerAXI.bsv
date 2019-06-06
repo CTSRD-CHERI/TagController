@@ -61,7 +61,7 @@ endinterface
 
 module mkTagControllerAXI(TagControllerAXI#(id_, addr_,128))
   provisos (Add#(addr_, 0, 64), Add#(a__, id_, SizeOf#(ReqId)), Add#(b__, TAdd#(id_, 1), SizeOf#(ReqId)));
-  let tmp <- mkDbgTagControllerAXI(Valid ("Tag Controller:"));
+  let tmp <- mkDbgTagControllerAXI(Invalid);
   return tmp;
 endmodule
 module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,128))
