@@ -65,11 +65,12 @@ typedef RspFlit#(id_, 128, 0)        DRAMRsp#(numeric type id_);
 // Request ranslators between AXI and CHERI Memory
 
 function CheriMemRequest axi2mem_req(MemReq#(id_, 64) mr)
-  provisos (Add#(a__, id_, SizeOf#(ReqId)));
+  provisos (Add#(a__, TAdd#(id_, 1), SizeOf#(ReqId)));
   CheriMemRequest req = ?;
   case (mr) matches
     tagged Write .w: begin
-      Bit#(SizeOf#(ReqId)) tmp_id = zeroExtend(w.aw.awid);
+      Bit#(TAdd#(id_, 1)) labelled_id = {1'b0,w.aw.awid};
+      Bit#(SizeOf#(ReqId)) tmp_id = zeroExtend(labelled_id);
       req = CheriMemRequest{
         addr: unpack(truncate(w.aw.awaddr)),
         masterID: truncateLSB(tmp_id),
@@ -85,7 +86,8 @@ function CheriMemRequest axi2mem_req(MemReq#(id_, 64) mr)
       };
     end
     tagged Read .r: begin
-      Bit#(SizeOf#(ReqId)) tmp_id = zeroExtend(r.arid);
+      Bit#(TAdd#(id_, 1)) labelled_id = {1'b0,r.arid};
+      Bit#(SizeOf#(ReqId)) tmp_id = zeroExtend(labelled_id);
       req = CheriMemRequest{
         addr: unpack(truncate(r.araddr)),
         masterID: truncateLSB(tmp_id),
@@ -180,17 +182,19 @@ endfunction
 function MemRsp#(id_) mem2axi_rsp(CheriMemResponse mr)
   provisos (Add#(a__, id_, SizeOf#(ReqId)));
   MemRsp#(id_) rsp = defaultValue;
+  Bit#(SizeOf#(ReqId)) fat_id = pack(getRespId(mr));
+  Bit#(id_) slim_id = truncate(fat_id);
   case (mr.operation) matches
     tagged Write: begin
       rsp = tagged Write AXI4_BFlit{
-        bid: truncate(pack(getRespId(mr))),
+        bid: slim_id,
         bresp: OKAY,
         buser: ?
       };
     end
     tagged Read .r:
       rsp = tagged Read AXI4_RFlit{
-        rid: truncate(pack(getRespId(mr))),
+        rid: slim_id,
         rdata: mr.data.data,
         rresp: OKAY,
         rlast: r.last,

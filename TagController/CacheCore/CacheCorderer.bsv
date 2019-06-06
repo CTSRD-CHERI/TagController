@@ -188,7 +188,7 @@ module mkCacheCorderer#(Bit#(16) cacheId)(CacheCorderer#(inFlight));
     // Then overwrite any id for this address.
     slaveAddrs.insert(line, id);
     slaveReqs.insert(id, recReq);
-    slaveDeps.insert(id, unpack('hFF));
+    slaveDeps.insert(id, unpack(~0));
   endmethod
   method Bool slaveReqServeReady(ReqId id, Line line);
     VnD#(ReqRec) req = slaveReqs.isMember(id);

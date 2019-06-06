@@ -276,7 +276,7 @@ module mkCacheCore#(Bit#(16) cacheId,
   
   Bag#(inFlight, ReqId, RequestRecord#(ways, keyBits, tagBits))readReqs <- mkSmallBag; // Hold data for outstanding memory requests
   VnD#(RequestRecord#(ways, keyBits, tagBits)) readReqRegDefault = VnD{v:False, d:?};
-  readReqRegDefault.d.outId = unpack('hFF);
+  readReqRegDefault.d.outId = unpack(-1);
   Reg#(VnD#(RequestRecord#(ways, keyBits, tagBits)))         readReqReg <- mkConfigReg(readReqRegDefault); // Hold data for outstanding memory request
   `ifdef STATCOUNTERS
     Wire#(CacheCoreEvents)  cacheCoreEventsWire <- mkDWire(defaultValue);

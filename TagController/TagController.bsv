@@ -101,9 +101,9 @@ module mkTagController(TagControllerIfc);
   //TagLookupIfc tagLookup <- mkTagLookup(mID);
   TagLookupIfc tagLookup <- mkMultiLevelTagLookup(
                                 mID,
-                                unpack(40'hBFFFFFFF),
+                                unpack(40'hC0000000),
                                 tableStructure,
-                                2**31 + 2**20 // 2GB + 1MB
+                                2**30 // 1GB
                             );
   // lookup responses fifo
   FF#(CheriTagResponse,4) lookupRsp <- mkUGFFDebug("TagController_lookupRsp");

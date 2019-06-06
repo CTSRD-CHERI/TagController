@@ -95,10 +95,10 @@ function Bool andBool (Bool x, Bool y) = (x && y);
 // starting address of the covered region
 CheriPhyAddr coveredStrtAddr = unpack(zeroExtend(40'h80000000));
 // ending address of the covered region
-CheriPhyAddr coveredEndAddr  = unpack(zeroExtend(40'hBFFFFFFF));
+CheriPhyAddr coveredEndAddr  = unpack(zeroExtend(40'hC0000000));
 // tag table is at top of DRAM
 // starting address of the tags table
-CheriPhyAddr tagTabStrtAddr  = unpack(zeroExtend(40'hBF000000));
+CheriPhyAddr tagTabStrtAddr  = unpack(zeroExtend(40'hBF800000));
 
 // mkTagLookup module definition
 ///////////////////////////////////////////////////////////////////////////////
@@ -191,7 +191,7 @@ module mkMultiLevelTagLookup #(
   PulseWire                    getReq <- mkPulseWire();
   // tag cache CacheCore module
   CacheCore#(1, 4, 1)  tagCache <- mkCacheCore(
-    12, WriteAllocate, RespondAll, TCache,
+    1, WriteAllocate, RespondAll, TCache,
     zeroExtend(mReqs.remaining()), ff2fifof(mReqs), ff2fifof(mRsps));
 
   // current lookup's depth
@@ -378,7 +378,7 @@ module mkMultiLevelTagLookup #(
   // initialisation rule
   /////////////////////////////////////////////////////////////////////////////
   rule initialise (state == Init);
-    `ifndef BLUESIM
+//    `ifndef BLUESIM
       TableLvl t = tableDesc[rootLvl];
       // zero toplevel of tag table in memory
       if (zeroAddr < unpack(pack(t.startAddr) + fromInteger(t.size))) begin
@@ -407,7 +407,7 @@ module mkMultiLevelTagLookup #(
         transNum <= transNum + 1;
         zeroAddr.lineNumber <= zeroAddr.lineNumber + 1;
       end else 
-    `endif
+//    `endif
     // when table zeroed, go to Serving state
     state <= Idle;
   endrule

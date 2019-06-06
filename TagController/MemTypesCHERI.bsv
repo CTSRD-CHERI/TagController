@@ -328,8 +328,8 @@ instance FShow#(MemoryRequest#(a,b,c,d))
     endfunction
 endinstance
 
-typedef Bit#(4) CheriMasterID;
-typedef Bit#(4) CheriTransactionID;
+typedef Bit#(1) CheriMasterID;
+typedef Bit#(5) CheriTransactionID;
 
 typedef Data#(CheriDataWidth) CheriData;
 typedef MemoryRequest#(CheriPhyAddr,CheriMasterID,CheriTransactionID,CheriDataWidth) CheriMemRequest;
