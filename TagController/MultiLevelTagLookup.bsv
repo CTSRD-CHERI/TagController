@@ -37,6 +37,7 @@ import DefaultValue::*;
 import StatCounters::*;
 `endif
 import Debug::*;
+`include "MemLayout.defines"
 
 // interface types
 ///////////////////////////////////////////////////////////////////////////////
@@ -88,12 +89,12 @@ function Bool andBool (Bool x, Bool y) = (x && y);
 
 // covered region include DRAM and BROM
 // starting address of the covered region
-CheriPhyAddr coveredStrtAddr = unpack(zeroExtend(40'h80000000));
+CheriPhyAddr coveredStrtAddr = unpack(zeroExtend(`COVERED_START_40));
 // ending address of the covered region
-CheriPhyAddr coveredEndAddr  = unpack(zeroExtend(40'hC0000000));
+CheriPhyAddr coveredEndAddr  = unpack(zeroExtend(`COVERED_END_40));
 // tag table is at top of DRAM
 // starting address of the tags table
-CheriPhyAddr tagTabStrtAddr  = unpack(zeroExtend(40'hBF800000));
+CheriPhyAddr tagTabStrtAddr  = unpack(zeroExtend(`TAG_TABLE_START_40));
 
 // mkTagLookup module definition
 ///////////////////////////////////////////////////////////////////////////////

@@ -47,6 +47,7 @@ import StatCounters::*;
 //import TagLookup::*;
 import MultiLevelTagLookup::*;
 `endif
+`include "MemLayout.defines"
 
 /******************************************************************************
  * mkTagController
@@ -108,9 +109,9 @@ module mkTagController(TagControllerIfc);
   //TagLookupIfc tagLookup <- mkTagLookup(mID);
   TagLookupIfc tagLookup <- mkMultiLevelTagLookup(
                                 mID,
-                                unpack(40'hC0000000),
+                                unpack(`TAG_TABLE_END),
                                 tableStructure,
-                                2**30 // 1GB
+                                `COVERED_SIZE
                             );
   // lookup responses fifo
   FF#(CheriTagResponse,4) lookupRsp <- mkUGFFDebug("TagController_lookupRsp");
@@ -216,7 +217,7 @@ module mkTagController(TagControllerIfc);
       method Action put(CheriMemRequest req) if (slvCanPut);
         debug2("tagcontroller", $display("<time %0t TagController> New request: ", $time, fshow(req)));
         // We only enqueue request to DRAM if this is not a tagOnlyRead
-        if (req.operation matches tagged Write .wop &&& req.addr > unpack(40'h3EFFC000) && req.addr < unpack(40'h00000000)) begin
+        if (req.operation matches tagged Write .wop &&& req.addr >= unpack(`TAG_TABLE_START) && req.addr < unpack(`TAG_TABLE_END)) begin
           req.operation = tagged Write {
               uncached: wop.uncached,
               conditional: wop.conditional,
