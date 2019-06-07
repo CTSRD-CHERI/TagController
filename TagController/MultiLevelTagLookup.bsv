@@ -72,15 +72,10 @@ typedef struct {
   Integer shiftAmnt;
   Integer groupFactor;
   Integer groupFactorLog;
-} TableLvl;
-instance FShow#(TableLvl);
-  function fshow (t) =
-    $format("TableLvl {") +
-    $format(" startAddr: 0x%0x", t.startAddr) +
-    $format(" shiftAmnt: %0d", t.shiftAmnt) +
-    $format(" groupFactor: %0d", t.groupFactor) +
-    $format(" groupFactorLog: %0d", t.groupFactorLog) +
-    $format("}");
+} TableLvl deriving (FShow);
+
+instance FShow#(Integer);
+  function Fmt fshow (Integer i) = $format("%d",i);
 endinstance
 
 // XXX (maximum table depth of 4)
@@ -190,7 +185,7 @@ module mkMultiLevelTagLookup #(
   FF#(CheriMemRequest, 1) tagCacheReq <- mkFF();
   PulseWire                    getReq <- mkPulseWire();
   // tag cache CacheCore module
-  CacheCore#(1, 4, 1)  tagCache <- mkCacheCore(
+  CacheCore#(2, TSub#(Indices,1), 1)  tagCache <- mkCacheCore(
     1, WriteAllocate, RespondAll, TCache,
     zeroExtend(mReqs.remaining()), ff2fifof(mReqs), ff2fifof(mRsps));
 
@@ -342,16 +337,16 @@ module mkMultiLevelTagLookup #(
     State newState,
     Bool useRsp
     ) = action
-    /*debug2("taglookup",
+    debug2("taglookup",
       $display("<time %0t TagLookup> table structure -", $time, fshow(tableDesc)
-    ));*/
+    ));
     case (mmr) matches
       tagged Valid .mr: begin
         // send the tag cache request and increment the transaction number
-        /*debug2("taglookup",
+        debug2("taglookup",
           $display("<time %0t TagLookup> sending lookup: ",
           $time, fshow(mr)
-        ));*/
+        ));
         tagCacheReq.enq(mr);
         useNextRsp.enq(useRsp);
         transNum <= transNum + 1;
@@ -361,10 +356,10 @@ module mkMultiLevelTagLookup #(
     currentDepth <= newDepth;
     // do state transistion
     state <= newState;
-    /*debug2("taglookup",
+    debug2("taglookup",
       $display("<time %0t TagLookup> pendingCapNumber %x, currentDepth %d -> %d, state ",
       $time, pendingCapNumber, currentDepth, newDepth, fshow(state), " -> ", fshow(newState)
-    ));*/
+    ));
   endaction;
   
   rule feedTagCache;
@@ -624,11 +619,11 @@ module mkMultiLevelTagLookup #(
       // tag request
       //////////////////////////////
       method Action put(CheriMemRequest req) if (state == Idle);
-        /*debug2("taglookup",
+        debug2("taglookup",
           $display(
             "<time %0t TagLookup> received request ",
             $time, fshow(req)
-        ));*/
+        ));
         // next state to go to
         State nextState  = Idle;
         // check whether we are in the covered region
@@ -692,19 +687,19 @@ module mkMultiLevelTagLookup #(
           pendingCapNumber <= capAddr.capNumber;
           pendingTags      <= newPendingTags;
           pendingCapEnable <= newPendingCapEnable;
-          /*debug2("taglookup",
+          debug2("taglookup",
             $display(
               "<time %0t TagLookup> Starting lookup with capNum = ",
               $time, fshow(capAddr.capNumber),
               " ( pending tags = ", fshow(newPendingTags),
               ", pending cap enable = ",fshow(newPendingCapEnable)," )"
-          ));*/
+          ));
           doTransition(tagged Valid mReq,rootLvl,nextState,True);
-        end /*else debug2("taglookup",
+        end else debug2("taglookup",
           $display(
             "<time %0t TagLookup> memory not covered",
             $time
-        ));*/
+        ));
       endmethod
     endinterface
 
@@ -726,11 +721,11 @@ module mkMultiLevelTagLookup #(
         // dequeue the pending request
         readReqs.deq();
         // debug msg and return response
-        /*debug2("taglookup",
+        debug2("taglookup",
           $display(
             "<time %0t TagLookup> got valid lookup response ",
             $time, fshow(tr)
-        ));*/
+        ));
         return tr;
       endmethod
     endinterface

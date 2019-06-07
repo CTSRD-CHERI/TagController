@@ -171,6 +171,12 @@ typedef struct {
     Bit#(width) data;
 } Data#(numeric type width) deriving (Bits, Eq, FShow);
 
+// Data type without cap tags
+typedef struct {
+    // actual data
+    Bit#(width) data;
+} DataMinusCapTags#(numeric type width) deriving (Bits, Eq, FShow);
+
 // what cache to target
 typedef enum {
     ICache, DCache, None, L2, TCache
@@ -181,9 +187,9 @@ typedef enum {
     CacheInvalidate,
     CacheInvalidateWriteback,
     CacheWriteback,
-    CacheInvalidateIndexWriteback,
-    CacheRead,
-    CacheWrite,
+    //CacheInvalidateIndexWriteback,
+    //CacheRead,
+    //CacheWrite,
     CacheSync,
 // here only as a temporary fix for migration to the new format
     Read, //XXX
@@ -192,8 +198,8 @@ typedef enum {
 // here only as a temporary fix for migration to the new format
     StoreConditional, //XXX
     CacheLoadTag,
-    CachePrefetch,
-    CacheInternalInvalidate,
+    //CachePrefetch,
+    //CacheInternalInvalidate,
     CacheNop
 } CacheInst deriving (Bits, Eq, FShow);
 
@@ -235,6 +241,8 @@ typedef struct {
     // several outstanding transactions
     // XXX THIS FIELD HAS TO BE MIRRORED BY THE SLAVE XXX
     transactionid_t transactionID;
+    // This operation should not cause side effects.
+    Bool cancelled;
     // operation to be performed by the request
     union tagged {
         // read operation
@@ -243,6 +251,10 @@ typedef struct {
             Bool uncached;
             // LL / standard load
             Bool linked;
+            `ifdef USECAP
+              // tag only read
+              Bool tagOnlyRead;
+            `endif
             // number of flits to be returned
             Flit noOfFlits;
             // number of bytes per flit
@@ -340,6 +352,8 @@ typedef struct {
   CheriTransactionID transactionID;
 } ReqId deriving (Bits, Eq, FShow);
 
+typedef 4 Banks;
+
 `ifdef MULTI
   typedef 7 Indices; // Go conservative for multicore.
 `elsif MEM128
@@ -370,6 +384,9 @@ typedef struct {
         struct {
             // True for the last flit of the burst
             Bool last;
+            `ifdef USECAP
+              Bool tagOnlyRead;
+            `endif
         } Read;
         // no information for write responses
         void Write;

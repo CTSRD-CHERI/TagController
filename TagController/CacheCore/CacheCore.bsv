@@ -103,11 +103,18 @@ typedef struct {
   Bool           commit;
 } CacheCommit deriving (Bits, Eq, Bounded, FShow);
 
+`ifdef USECAP
+  typedef Vector#(Banks, CapTags) LineCapTags;
+`endif
+
 typedef struct {
   Tag#(tagBits)                     tag;
   Bool                            dirty;
   Vector#(CheriBurstSize, Bool)   valid;
   Bool                          pendMem;
+  `ifdef USECAP
+    LineCapTags                 capTags;
+  `endif
 } TagLine#(numeric type tagBits) deriving (Bits, Eq, Bounded, FShow);
 
 typedef enum {Init, Serving} CacheState deriving (Bits, Eq, FShow);
@@ -162,6 +169,9 @@ typedef struct {
   ReqId               outId;
   Bool               cached;
   TagLine#(tagBits)  oldTag;
+  `ifdef USECAP
+    Vector#(Banks, CapTags) capTags;
+  `endif
   Way#(ways)         oldWay;
   Bool             oldDirty;
   Bool                write;
@@ -253,7 +263,7 @@ module mkCacheCore#(Bit#(16) cacheId,
   Reg#(ControlToken#(ways, keyBits, tagBits))                       cts <- mkConfigReg(initCt);
   Reg#(CacheState)                                           cacheState <- mkConfigReg(Init);
   Vector#(ways,MEM2#(Key#(keyBits),TagLine#(tagBits)))             tags <- replicateM(mkMEMNoFlow2());
-  Vector#(ways,MEM#(DataKey#(ways, keyBits), Data#(CheriDataWidth))) data <- replicateM(mkMEMNoFlow());
+  Vector#(ways,MEM#(DataKey#(ways, keyBits), DataMinusCapTags#(CheriDataWidth))) data <- replicateM(mkMEMNoFlow());
   Reg#(Way#(ways))                                              nextWay <- mkConfigReg(0);
   Reg#(Key#(keyBits))                                         initCount <- mkReg(0);
   FF#(Bool, 16)                                             req_commits <- mkUGFFBypass; // Plenty big!
@@ -334,9 +344,17 @@ module mkCacheCore#(Bit#(16) cacheId,
     nextEmpty <= orderer.reqsEmpty;
   endrule
 
-  function ActionValue#(VnD#(Way#(ways))) findWay(Vector#(ways,TagLine#(tagBits)) tagVec,Tag#(tagBits) tag, Flit bank);
+  function ActionValue#(VnD#(Way#(ways))) findWay(Vector#(ways,TagLine#(tagBits)) tagVec,Tag#(tagBits) tag, Flit bank
+    `ifdef USECAP
+      , Bool tagOnlyRead
+    `endif
+    );
     actionvalue
-    function Bool validBank(TagLine#(tagBits) t) = (tag==t.tag && t.valid[bank]);
+    `ifdef USECAP
+      function Bool validBank(TagLine#(tagBits) t) = tagOnlyRead? (tag==t.tag && pack(t.valid)==-1) : (tag==t.tag && t.valid[bank]);
+    `else
+      function Bool validBank(TagLine#(tagBits) t) = (tag==t.tag && t.valid[bank]);
+    `endif
     return returnIndex(validBank, tagVec);
     endactionvalue
   endfunction
@@ -532,7 +550,21 @@ module mkCacheCore#(Bit#(16) cacheId,
     CacheAddress#(keyBits, tagBits)         addr  =  ct.addr;
     Vector#(ways,TagLine#(tagBits))     tagsRead = ?;
     for (Integer i=0; i<valueOf(ways); i=i+1) tagsRead[i] <- tags[i].read.get();
-    VnD#(Way#(ways)) mWay <- findWay(tagsRead,addr.tag,addr.bank);
+
+    `ifdef USECAP
+      Bool tagOnlyRead = False; // True should be rare.
+      tagOnlyRead = {case (ct.req.operation) matches
+                        tagged Read .rop:  return rop.tagOnlyRead;
+                        default: return False;
+                      endcase};
+      tagOnlyRead = tagOnlyRead && (whichCache!=TCache);
+    `endif
+
+    VnD#(Way#(ways)) mWay <- findWay(tagsRead,addr.tag,addr.bank
+    `ifdef USECAP
+      ,tagOnlyRead
+    `endif
+    );
     Bool miss = !mWay.v;
     Way#(ways) way = mWay.d;
     if (writeBehaviour==WriteAllocate && miss) way = ct.way;
@@ -540,8 +572,8 @@ module mkCacheCore#(Bit#(16) cacheId,
         
     // Independantly of the tag match, get the data from all the ways and shift it down.
     // This moves the shift from later to now where it can be in parallel with the match and select.
-    function ActionValue#(Data#(CheriDataWidth)) getData(MEM#(DataKey#(ways, keyBits), Data#(CheriDataWidth)) bram) = bram.read.get();
-    Vector#(ways, Data#(CheriDataWidth)) datasRead <- mapM(getData,data);
+    function ActionValue#(DataMinusCapTags#(CheriDataWidth)) getData(MEM#(DataKey#(ways, keyBits), DataMinusCapTags#(CheriDataWidth)) bram) = bram.read.get();
+    Vector#(ways, DataMinusCapTags#(CheriDataWidth)) datasRead <- mapM(getData,data);
     Offset dataShift = 0;
     `ifdef USECAP
       Bit#(TLog#(CapsPerFlit)) capShift = 0;
@@ -552,6 +584,10 @@ module mkCacheCore#(Bit#(16) cacheId,
         capShift = truncateLSB(dataShift);
       `endif
     end
+    function DataMinusCapTags#(CheriDataWidth) shiftDataMinusTags(DataMinusCapTags#(CheriDataWidth) data) = 
+              DataMinusCapTags{
+                data: (data.data)>>{dataShift,3'b0}
+              };
     function Data#(CheriDataWidth) shiftData(Data#(CheriDataWidth) data) = 
               Data{
                 data: (data.data)>>{dataShift,3'b0}
@@ -560,11 +596,11 @@ module mkCacheCore#(Bit#(16) cacheId,
                 `endif
               };
     // Put the 64-bit word of interest in the bottom.
-    Vector#(ways, Data#(CheriDataWidth)) shiftedDatasRead = map(shiftData,datasRead);
-    Data#(CheriDataWidth) shiftedDataRead = shiftedDatasRead[way];
+    Vector#(ways, DataMinusCapTags#(CheriDataWidth)) shiftedDatasRead = map(shiftDataMinusTags,datasRead);
+    DataMinusCapTags#(CheriDataWidth) shiftedDataRead = shiftedDatasRead[way];
     
     // Select the data that matched the way.
-    Data#(CheriDataWidth) dataRead = datasRead[way];
+    DataMinusCapTags#(CheriDataWidth) dataRead = datasRead[way];
     ByteEnable dirties = unpack(-1);
     `ifdef WRITEBACK_DCACHE
       if (supportDirtyBytes) begin
@@ -625,10 +661,10 @@ module mkCacheCore#(Bit#(16) cacheId,
     Bool writeTagsEvenIfDead = False;
     Bool expectResponse = False;
     Bool evict = False;
-    Bool isPftch = {case (req.operation) matches
+    /*Bool isPftch = {case (req.operation) matches
                     tagged CacheOp .cop &&& (cop.inst == CachePrefetch && cop.cache == whichCache): return True;
                     default: return False;
-                   endcase};
+                   endcase};*/
     Bool reportResponse = False;
     ReqId deqId = getReqId(req);
     Bool deqReqCommits = False;
@@ -643,10 +679,15 @@ module mkCacheCore#(Bit#(16) cacheId,
     cached = {case (req.operation) matches
                       tagged Read .rop:  return !rop.uncached;
                       tagged Write .wop: return !wop.uncached;
-                      tagged CacheOp .cop &&& (cop.inst == CachePrefetch && cop.cache == whichCache): True;
+                      //tagged CacheOp .cop &&& (cop.inst == CachePrefetch && cop.cache == whichCache): True;
                       default: return False;
                     endcase};
-    Bool prefetchMissLocal = (isPftch && miss);
+    `ifdef USECAP
+      // If this is a tagOnlyRead, check our own cache first. Turn it into
+      // uncached after it is a miss.
+      if (tagOnlyRead) cached = True;
+    `endif
+    //Bool prefetchMissLocal = (isPftch && miss);
 
     // If this is not the last-level cache, then a lower level will handle ordering
     // of load-linked and store conditional.
@@ -661,7 +702,7 @@ module mkCacheCore#(Bit#(16) cacheId,
 
     Bool isWrite = False;
     if (req.operation matches tagged Write .wop) isWrite = True;
-    if (prefetchMissLocal) isWrite = True;
+    //if (prefetchMissLocal) isWrite = True;
     Bool isRead = False;
     if (req.operation matches tagged Read .rop) isRead = True;
     
@@ -680,8 +721,18 @@ module mkCacheCore#(Bit#(16) cacheId,
     cacheResp.transactionID = req.transactionID;
     cacheResp.error = ct.rspError;
     // Pull assignment of cacheResp.data out of all other conditionals for speed.
-    cacheResp.data = shiftedDataRead;
-    if (ct.command == MemResponse) cacheResp.data = shiftedMemRespData;
+    cacheResp.data.data = shiftedDataRead.data;
+    `ifdef USECAP
+      cacheResp.data.cap = unpack((pack(tag.capTags[addr.bank]) >> capShift));
+      if (tagOnlyRead) begin
+        cacheResp.data.data = zeroExtend(pack(tag.capTags));
+        cacheResp.operation = tagged Read{last: True, tagOnlyRead: True};
+      end
+    `endif
+    if (ct.command == MemResponse) begin
+      cacheResp.data = shiftedMemRespData;
+      cacheResp.operation = memResp.operation;
+    end
     
     // These hold and control enqing the request to the retry fifo.
     CheriMemRequest memReq = req; // Request to forward to memory.
@@ -720,7 +771,11 @@ module mkCacheCore#(Bit#(16) cacheId,
                       conditional: False,
                       byteEnable: dirties,
                       bitEnable: -1,
-                      data: dataRead,
+                      data: Data{ data: dataRead.data
+                      `ifdef USECAP
+                        , cap: tag.capTags[addr.bank]
+                      `endif
+                      },
                       last: True
                   };
           req.addr = unpack(pack(ct.addr));
@@ -748,7 +803,15 @@ module mkCacheCore#(Bit#(16) cacheId,
         Bool lastlastMismatch = False;
         Bool last = getLastField(memResp);
         // Put in a Read flit by default so that the later "hack" will not interpret a Write command as a memory read fill.
-        ct.req.operation = tagged Read {uncached: ?, linked: ?, noOfFlits: ?, bytesPerFlit: ?};
+        ct.req.operation = tagged Read {
+          uncached: ?,
+          linked: ?,
+          noOfFlits: ?,
+          bytesPerFlit: ?
+          `ifdef USECAP
+            ,tagOnlyRead: False
+          `endif
+        };
         Bool forceResponse = False;
         Bool readResponse = False;
         if (memResp.operation matches tagged Read .rr) readResponse = True;
@@ -876,7 +939,10 @@ module mkCacheCore#(Bit#(16) cacheId,
           tagged Write .wop: begin
             if (cached && readResponse) begin
               // Do fill
-              data[way].write(ct.dataKey, wop.data);  
+              data[way].write(ct.dataKey, DataMinusCapTags{data: wop.data.data});  
+              `ifdef USECAP
+                tag.capTags[ct.dataKey.bank] = wop.data.cap;
+              `endif
               `ifdef WRITEBACK_DCACHE
                 if (supportDirtyBytes) begin
                   dirtyBytes[way].write(ct.dataKey, unpack(0));  
@@ -958,6 +1024,9 @@ module mkCacheCore#(Bit#(16) cacheId,
           if (!forceResponse) begin
             cacheResp.operation = tagged Read {
                 last: thisReqLast
+                `ifdef USECAP
+                  ,tagOnlyRead: tagOnlyRead
+                `endif
             };
           end
           
@@ -1002,7 +1071,7 @@ module mkCacheCore#(Bit#(16) cacheId,
         endactionvalue;
         
         Bool needWriteback = False;
-        Bool dontCommit = False;
+        Bool dontCommit = req.cancelled;
         
         exeThisReq <- orderer.slaveReqExecuteReady(reqId, addr.bank);
         if (!noReqs) debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> serveThisReq:%x, exeThisReq:%x, reqId:%x, thisReqLast:%x, addr.bank: %x, isValid(commit):%x, miss:%x",
@@ -1021,6 +1090,9 @@ module mkCacheCore#(Bit#(16) cacheId,
           
           if (giveReadResponse) cacheResp.operation = tagged Read {
                                     last: thisReqLast
+                                    `ifdef USECAP
+                                      ,tagOnlyRead: tagOnlyRead
+                                    `endif
                                 };
           else if (req.operation matches tagged Write .wop &&& wop.conditional)
                                 cacheResp.operation = tagged SC False;
@@ -1042,7 +1114,7 @@ module mkCacheCore#(Bit#(16) cacheId,
                                        $time, cacheId, noReqs, miss, serveThisReq, cached, writebacks.notEmpty, ct.fresh));
         end else begin
           case (req.operation) matches
-            tagged CacheOp .cop &&& (!prefetchMissLocal): begin
+            tagged CacheOp .cop /*&&& (!prefetchMissLocal)*/: begin
               if (cop.cache == whichCache) begin
                 respValid = True;
                 if (cop.indexed) miss = False;
@@ -1083,7 +1155,11 @@ module mkCacheCore#(Bit#(16) cacheId,
               if (failed) dead = True;
               debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Load Linked - Dirty line, requires writeback", $time, cacheId, addr.key));
             end
-            tagged Read .rop &&& (!miss && cached && !passConditional): begin
+            tagged Read .rop &&& (!miss && (cached
+                `ifdef USECAP
+                  || tagOnlyRead
+                `endif
+                ) && !passConditional): begin
               cachedResponse=True;
             end
             tagged Read .rop &&& (!miss && !cached && !passConditional): begin
@@ -1132,7 +1208,8 @@ module mkCacheCore#(Bit#(16) cacheId,
                 pendMem  : tag.pendMem,
                 valid    : tag.valid
               };
-              if (!writeThrough && tag.dirty != True) writeTags = True;
+              //if (!writeThrough && tag.dirty != True)
+              writeTags = True;
               if (performWritethrough) doMemRequest = True;
             end
             /*tagged Write .wop &&& (!cached): begin
@@ -1156,6 +1233,11 @@ module mkCacheCore#(Bit#(16) cacheId,
               if (!miss) doInvalidate = True;
             end
             default: begin  // It's a miss!
+              `ifdef USECAP
+                // Turn it into uncached if we had a miss on tagOnlyRead, because
+                // a miss makes tagOnlyRead behave like uncached reads
+                if (tagOnlyRead) cached = False;
+              `endif
               // If it's a cached operation, align the access.
               if (cached) begin 
                 memReq.addr = unpack(pack(CacheAddress{
@@ -1175,6 +1257,9 @@ module mkCacheCore#(Bit#(16) cacheId,
               if (!dead) begin
                 memReq.operation = tagged Read {
                                       uncached: !cached,
+                                      `ifdef USECAP
+                                        tagOnlyRead: tagOnlyRead,
+                                      `endif
                                       linked: linked,
                                       noOfFlits: (cached) ? 3:0,
                                       bytesPerFlit: (cached) ? cheriBusBytes : (case (req.operation) matches
@@ -1235,6 +1320,9 @@ module mkCacheCore#(Bit#(16) cacheId,
                                                                   outId: getReqId(memReq),
                                                                   cached: cached,
                                                                   oldTag: tagUpdate.newTag,
+                                                                  `ifdef USECAP
+                                                                    capTags: replicate(replicate(False)),
+                                                                  `endif
                                                                   oldWay: way,
                                                                   oldDirty: tag.dirty&&any(id,tag.valid),
                                                                   write: isWrite
@@ -1281,10 +1369,10 @@ module mkCacheCore#(Bit#(16) cacheId,
               incMissWrite:  (firstFresh &&  miss && isWrite),
               incHitRead:    (firstFresh && !miss && isRead),
               incMissRead:   (firstFresh &&  miss && isRead),
-              incHitPftch:   (firstFresh && !miss && isPftch),
-              incMissPftch:  (firstFresh &&  miss && isPftch),
-              incEvict:      (False),
-              incPftchEvict: (evict && isPftch)
+              //incHitPftch:   (firstFresh && !miss && isPftch),
+              //incMissPftch:  (firstFresh &&  miss && isPftch),
+              incEvict:      (False)
+              //incPftchEvict: (evict && isPftch)
               `ifdef USECAP
                 ,
                 incSetTagWrite: ?,
@@ -1297,6 +1385,9 @@ module mkCacheCore#(Bit#(16) cacheId,
             //Return cached data.
             cacheResp.operation = tagged Read {
                 last: thisReqLast
+                `ifdef USECAP
+                  ,tagOnlyRead: tagOnlyRead
+                `endif
             };
             
             respValid = True;
@@ -1330,11 +1421,11 @@ module mkCacheCore#(Bit#(16) cacheId,
               // zipWith3 combines the three vectors with the function "choose", defined above, producing another vector.
               // In this case it is just selecting the old byte or new byte based on byteEnable.
               Vector#(CheriBusBytes,Byte) maskedWriteVec = zipWith3(choose, unpack(dataRead.data), unpack(wop.data.data), wop.byteEnable);
-              Data#(CheriDataWidth) maskedWrite = wop.data;
+              DataMinusCapTags#(CheriDataWidth) maskedWrite;
               maskedWrite.data = pack(maskedWriteVec);
               `ifdef USECAP
                 // Fold in capability tags.
-                CapTags capTags = dataRead.cap;
+                CapTags capTags = tag.capTags[addr.bank];
                 Integer i;
                 for (i=0; i<valueOf(CapsPerFlit); i=i+1) begin
                   Integer bot = i*valueOf(CapBytes);
@@ -1343,7 +1434,8 @@ module mkCacheCore#(Bit#(16) cacheId,
                   if (capBytes != 0) capTags[i] = wop.data.cap[i];
                 end
                 //$display("capTags: %x", capTags);
-                maskedWrite.cap = capTags;
+                tag.capTags[addr.bank] = capTags; // Is this necessary?
+                tagUpdate.newTag.capTags[addr.bank] = capTags;
                 `ifdef STATCOUNTERS
                   cacheCoreEvents.incSetTagWrite = pack(capTags) != 0;
                 `endif
@@ -1527,12 +1619,12 @@ module mkCacheCore#(Bit#(16) cacheId,
       if (respsReady) debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> updateStateNoResponse called", $time, cacheId));
       if (!respsReady) begin
         missedRespSig = False;
-      end else if (rt.resp.operation matches tagged Write &&& writeResps.notFull) begin
+      end else if (rt.resp.operation matches tagged Write &&& writeResps.notFull && whichCache!=ICache) begin
         debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Missed Delivering write response, buffered it ", $time, cacheId, fshow(rt)));
         ReqIdWithSC enqToWriteResps = ReqIdWithSC{inId: getRespId(rt.resp), isSC: False, scResult: False};
         writeResps.enq(enqToWriteResps);
         missedRespSig = False;
-      end else if (rt.resp.operation matches tagged SC .sc &&& writeResps.notFull) begin
+      end else if (rt.resp.operation matches tagged SC .sc &&& writeResps.notFull && whichCache!=ICache) begin
         debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Missed Delivering SC response, buffered it ", $time, cacheId, fshow(rt)));
         ReqIdWithSC enqToWriteResps = ReqIdWithSC{inId: getRespId(rt.resp), isSC: True, scResult: sc};
         writeResps.enq(enqToWriteResps);

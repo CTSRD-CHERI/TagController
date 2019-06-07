@@ -33,31 +33,39 @@ import FF::*;
 // Equal to Bluespec equivelant
 module mkUGFFFullOfUniqueInts#(Bit#(16) cacheId)(FF#(data, depth))
 provisos(Log#(depth,logDepth),Bits#(data, data_width),Literal#(data),FShow#(data));
-  Array#(Reg#(Vector#(depth,data)))    rf  <- mkCReg(2,genWith(fromInteger)); // BRAM
-  Reg#(data)                     firstReg  <- mkConfigRegU;
-  Reg#(Bit#(TAdd#(logDepth,1)))     lhead  <- mkConfigRegA(16);
-  Reg#(Bit#(TAdd#(logDepth,1)))  ltail[2]  <- mkCReg(2,0);
+  Reg#(Vector#(depth,data))    rf  <- mkReg(genWith(fromInteger));
+  RWire#(data)            enqData  <- mkRWire;
+  PulseWire                deqSig  <- mkPulseWire;
+  Reg#(Bit#(TAdd#(logDepth,1))) lhead <- mkConfigRegA(fromInteger(valueOf(depth)));
   
-  Bit#(TAdd#(logDepth,1)) level = lhead - ltail[0];
-  Bool empty = (level==0);
-  Bool full  = (level==fromInteger(valueOf(depth)));
+  Bool empty = (lhead==0);
+  Bool full  = (lhead==fromInteger(valueOf(depth)));
   Bit#(logDepth) head = truncate(lhead);
   
-  rule readTail;
-    Bit#(logDepth) tail = truncate(ltail[1]);
-    firstReg <= rf[1][tail];
+  rule updateRf;
+    Vector#(depth,data) newRf = rf;
+    Bit#(TAdd#(logDepth,1)) newHead = lhead;
+    if (deqSig) begin
+      newRf = shiftOutFrom0(0,rf,1);
+      newHead = newHead - 1;
+    end
+    if (enqData.wget() matches tagged Valid .data) begin
+      newRf[newHead] = data;
+      newHead = newHead + 1;
+    end
+    rf <= newRf;
+    lhead <= newHead;
   endrule
   
   method Action enq(data in);
-    rf[0][head] <= in;
-    lhead <= lhead + 1;
+    enqData.wset(in);
   endmethod
   method Action deq();
-    ltail[0] <= ltail[0]+1;
+    deqSig.send();
   endmethod
-  method data first() = firstReg;
+  method data first() = rf[0];
   method Bool notFull() = !full;
   method Bool notEmpty() = !empty;
-  method Action clear() = action ltail[1] <= lhead; endaction;
-  method Bit#(TAdd#(TLog#(depth), 1)) remaining() = fromInteger(valueOf(depth)) - level;
+  method Action clear() = action lhead <= 0; endaction;
+  method Bit#(TAdd#(logDepth, 1)) remaining() = fromInteger(valueOf(depth)) - lhead;
 endmodule

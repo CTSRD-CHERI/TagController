@@ -71,6 +71,13 @@ interface TagControllerIfc;
   `endif
 endinterface
 
+typedef struct {
+  Bool tagOnlyRead;
+  Bit#(2) bank;
+  CheriMasterID masterID;
+  CheriTransactionID transactionID;
+} AddrFrame deriving(Bits, FShow);
+
 // internal types
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -107,7 +114,7 @@ module mkTagController(TagControllerIfc);
                             );
   // lookup responses fifo
   FF#(CheriTagResponse,4) lookupRsp <- mkUGFFDebug("TagController_lookupRsp");
-  FF#(Bit#(2),4)          addrFrame <- mkUGFFDebug("TagController_addrFrame");
+  FF#(AddrFrame,4)          addrFrame <- mkUGFFDebug("TagController_addrFrame");
   // lookup response frame to access (for multi-flit transactions)
   Reg#(Bit#(2)) frame <- mkReg(0);
   `endif
@@ -122,13 +129,11 @@ module mkTagController(TagControllerIfc);
 
   // forwards tag lookup requests to the memory interface
   rule forwardLookupReqs(tagLookup.memory.request.canGet() && mReqs.notFull());
-    /*
     debug2("tagcontroller",
       $display(
         "<time %0t TagController> Injecting request from tag lookup engine: ",
         $time, fshow(tagLookup.memory.request.peek())
     ));
-    */
     CheriMemRequest r <- tagLookup.memory.request.get();
     if (r.operation matches tagged Write .wop) begin
       mReqs.enq(r);
@@ -142,22 +147,39 @@ module mkTagController(TagControllerIfc);
   /////////////////////////////////////////////////////////////////////////////
   // look at the next memory response
   function CheriMemResponse peekMemResponse();
-    // look at the next response from the memory master interface
-    CheriMemResponse resp    = mRsps.first;
-    // initialise new response to response coming from memory
+    CheriMemResponse resp = mRsps.first;
     CheriMemResponse newResp = resp;
-    // in case of read, need to construct the tags
-    if (resp.operation matches tagged Read .rop) begin
-      Vector#(TDiv#(CheriDataWidth,CapWidth),Bool) tags = replicate(True);
+    if (addrFrame.first().tagOnlyRead && lookupRsp.notEmpty()) begin
+      newResp = CheriMemResponse{
+          masterID: addrFrame.first().masterID,
+          transactionID: addrFrame.first().transactionID,
+          error: NoError,
+          operation: tagged Read{last: True, tagOnlyRead: True}
+      };
       `ifndef NOTAG
         // look at the tag lookup response
         case (lookupRsp.first()) matches
-          tagged Covered .ts : tags = unpack(ts[addrFrame.first + frame]);
-          tagged Uncovered   : tags = unpack(0);
+          tagged Covered .ts : newResp.data.data = zeroExtend(pack(ts));
+          tagged Uncovered   : newResp.data.data = 0;
         endcase
       `endif
-      // update the new response with appropriate tags
-      newResp.data.cap = tags;
+      newResp.data.cap = unpack(0);
+    end else begin
+      // initialise new response to response coming from memory
+      newResp = resp;
+      // in case of read, need to construct the tags
+      if (resp.operation matches tagged Read .rop) begin
+        Vector#(TDiv#(CheriDataWidth,CapWidth),Bool) tags = replicate(True);
+        `ifndef NOTAG
+          // look at the tag lookup response
+          case (lookupRsp.first()) matches
+            tagged Covered .ts : tags = unpack(ts[addrFrame.first().bank + frame]);
+            tagged Uncovered   : tags = unpack(0);
+          endcase
+        `endif
+        // update the new response with appropriate tags
+        newResp.data.cap = tags;
+      end
     end
     return newResp;
   endfunction
@@ -178,6 +200,9 @@ module mkTagController(TagControllerIfc);
   `ifndef NOTAG
   // If the tag is not ready for a read response, we can't get.
   if (mRsps.first.operation matches tagged Read .rop &&& !lookupRsp.notEmpty()) slvCanGet = False;
+  if (addrFrame.notEmpty())
+    // this bit is the tagOnlyRead bit.
+    if (addrFrame.first().tagOnlyRead && lookupRsp.notEmpty()) slvCanGet = True;
   `endif
 
   // module Slave interface
@@ -189,13 +214,26 @@ module mkTagController(TagControllerIfc);
     interface CheckedPut request;
       method Bool canPut() = slvCanPut;
       method Action put(CheriMemRequest req) if (slvCanPut);
-        //debug2("tagcontroller", $display("<time %0t TagController> New request: ", $time, fshow(req)));
-        mReqs.enq(req);
+        debug2("tagcontroller", $display("<time %0t TagController> New request: ", $time, fshow(req)));
+        // We only enqueue request to DRAM if this is not a tagOnlyRead
+        if (req.operation matches tagged Write .wop &&& req.addr > unpack(40'h3EFFC000) && req.addr < unpack(40'h00000000)) begin
+          req.operation = tagged Write {
+              uncached: wop.uncached,
+              conditional: wop.conditional,
+              byteEnable: replicate(False),
+              bitEnable: 0,
+              data: wop.data,
+              last: wop.last
+          };
+        end
+        Bool canDoEnq = True;
+        if (req.operation matches tagged Read .rop &&& rop.tagOnlyRead) canDoEnq=False;
+        if (canDoEnq) mReqs.enq(req);
         `ifndef NOTAG
           tagLookup.cache.request.put(req);
           if (req.operation matches tagged Read .rop) begin
             // Stash the frame of the incoming address so that we can select the correct tags for the response.
-            addrFrame.enq(truncateLSB({req.addr.lineNumber[1:0],req.addr.byteOffset}));
+            addrFrame.enq(AddrFrame{tagOnlyRead: rop.tagOnlyRead, bank: truncateLSB({req.addr.lineNumber[1:0],req.addr.byteOffset}), masterID: req.masterID, transactionID: req.transactionID});
           end
         `endif
       endmethod
@@ -208,20 +246,22 @@ module mkTagController(TagControllerIfc);
       method ActionValue#(CheriMemResponse) get() if (slvCanGet);
         // prepare memory response
         CheriMemResponse resp = peekMemResponse();
-        // dequeue memory response fifo
-        mRsps.deq();
+        // dequeue memory response fifo only when the response is not tagOnlyRead
+        Bool canDoDeq = True;
+        if (resp.operation matches tagged Read .rop &&& rop.tagOnlyRead==True) canDoDeq=False;
+        if (canDoDeq) mRsps.deq();
         `ifndef NOTAG
         // in case of read response ...
         if (resp.operation matches tagged Read .rop) begin
           // on the last flit,
-          if (rop.last) begin
+          if (rop.last || rop.tagOnlyRead) begin
             lookupRsp.deq(); // dequeue the tag lookup response fifo
             addrFrame.deq();
             frame <= 0;  // reset the current frame
           end else frame <= frame + 1; // for non last flits, increment frame
         end else frame <= 0;
         `endif
-        //debug2("tagcontroller", $display("<time %0t TagController> Returning response: ", $time, fshow(resp)));
+        debug2("tagcontroller", $display("<time %0t TagController> Returning response: ", $time, fshow(resp)));
         return resp;
       endmethod
     endinterface
@@ -234,26 +274,20 @@ module mkTagController(TagControllerIfc);
     interface request  = toCheckedGet(ff2fifof(mReqs));
     interface CheckedPut response;
       method Bool canPut();
-        `ifdef NOTAG
-        return mRsps.notFull;
-        `else
-        return (mRsps.notFull && tagLookup.memory.response.canPut);
-        `endif
+        return (mRsps.notFull() && tagLookup.memory.response.canPut());
       endmethod
-      method Action put(CheriMemResponse r)
+      method Action put(CheriMemResponse r) if (mRsps.notFull() && tagLookup.memory.response.canPut());
         `ifdef NOTAG
-        if (mRsps.notFull);
           mRsps.enq(r);
         `else
-        if (mRsps.notFull && tagLookup.memory.response.canPut);
           MemReqType reqType = (r.masterID == mID) ? TagLookupReq : StdReq;
-          //debug2("tagcontroller", $display("<time %0t TagController> response from memory: source=%x ", $time, reqType, fshow(r)));
+          debug2("tagcontroller", $display("<time %0t TagController> response from memory: source=%x ", $time, reqType, fshow(r)));
           if (reqType == TagLookupReq) begin
             tagLookup.memory.response.put(r);
-            //debug2("tagcontroller", $display("<time %0t TagController> tag response", $time));
+            debug2("tagcontroller", $display("<time %0t TagController> tag response", $time));
           end else begin
             mRsps.enq(r);
-            //debug2("tagcontroller", $display("<time %0t TagController> memory response", $time));
+            debug2("tagcontroller", $display("<time %0t TagController> memory response", $time));
           end
         `endif
       endmethod
