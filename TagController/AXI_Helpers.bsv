@@ -56,8 +56,8 @@ instance DefaultValue#(RspFlit#(id_, data_, tag_));
   function defaultValue = tagged Write defaultValue;
 endinstance
 
-typedef ReqFlit#(id_, addr_, 128, 1) MemReq#(numeric type id_, numeric type addr_);
-typedef RspFlit#(id_, 128, 1)        MemRsp#(numeric type id_);
+typedef ReqFlit#(id_, addr_, 128, CapsPerFlit) MemReq#(numeric type id_, numeric type addr_);
+typedef RspFlit#(id_, 128, CapsPerFlit)        MemRsp#(numeric type id_);
 
 typedef ReqFlit#(id_, addr_, 128, 0) DRAMReq#(numeric type id_, numeric type addr_);
 typedef RspFlit#(id_, 128, 0)        DRAMRsp#(numeric type id_);

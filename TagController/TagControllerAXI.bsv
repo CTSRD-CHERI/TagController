@@ -55,7 +55,7 @@ interface TagControllerAXI#(
   numeric type addr_,
   numeric type data_);
   interface AXI4_Master#(TAdd#(id_, 1), addr_, data_, 0, 0, 0, 0, 0) master;
-  interface AXI4_Slave#(id_, addr_, data_, 0, TDiv#(data_, 128), 0, 0, TDiv#(data_, 128)) slave;
+  interface AXI4_Slave#(id_, addr_, data_, 0, CapsPerFlit, 0, 0, CapsPerFlit) slave;
   method Action clear;
 endinterface
 
@@ -69,7 +69,7 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,1
   let    clk <- exposeCurrentClock;
   let newRst <- mkReset(0, True, clk);
   TagControllerIfc tagCon <- mkTagController(reset_by newRst.new_rst);
-  AXI4_Shim#(id_, addr_, 128, 0, 1, 0, 0, 1) shimSlave  <- mkAXI4ShimUGSizedFIFOF4;
+  AXI4_Shim#(id_, addr_, 128, 0, CapsPerFlit, 0, 0, CapsPerFlit) shimSlave  <- mkAXI4ShimUGSizedFIFOF4;
   AXI4_Shim#(TAdd#(id_,1), addr_, 128, 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimUGSizedFIFOF4;
   FIFO#(Bit#(0)) limiter <- mkFIFO1;
 
