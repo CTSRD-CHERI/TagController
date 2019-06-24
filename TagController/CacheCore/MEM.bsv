@@ -369,10 +369,8 @@ module mkMEMCore(MEM#(addr, data))
    Clock clk <- exposeCurrentClock;
    Reset rst <- exposeCurrentReset;
    (*hide*)
-  `ifndef BLUESIM
-    let _ifc <- vAltMEMCore();
-  `else
-    let _ifc <- mkMEMCoreBSC;
-  `endif
+
+   let _ifc <- mkMEMCoreBSC;
+
    return _ifc ;
 endmodule
