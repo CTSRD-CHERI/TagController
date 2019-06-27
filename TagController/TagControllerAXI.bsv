@@ -60,12 +60,12 @@ interface TagControllerAXI#(
 endinterface
 
 module mkTagControllerAXI(TagControllerAXI#(id_, addr_,128))
-  provisos (Add#(addr_, 0, 64), Add#(a__, id_, SizeOf#(ReqId)), Add#(b__, TAdd#(id_, 1), SizeOf#(ReqId)));
+  provisos (Add#(a__, id_, SizeOf#(ReqId)), Add#(b__, TAdd#(id_, 1), SizeOf#(ReqId)), Add#(c__, addr_, 64));
   let tmp <- mkDbgTagControllerAXI(Invalid);
   return tmp;
 endmodule
 module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,128))
-  provisos (Add#(addr_, 0, 64), Add#(a__, id_, SizeOf#(ReqId)), Add#(b__, TAdd#(id_, 1), SizeOf#(ReqId)));
+  provisos (Add#(a__, id_, SizeOf#(ReqId)), Add#(b__, TAdd#(id_, 1), SizeOf#(ReqId)), Add#(c__, addr_, 64));
   let    clk <- exposeCurrentClock;
   let newRst <- mkReset(0, True, clk);
   TagControllerIfc tagCon <- mkTagController(reset_by newRst.new_rst);
@@ -83,14 +83,14 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,1
       axi2mem_req(Write(WriteReqFlit{aw: awreq, w: wreq}))
     );
     limiter.enq(?);
-    printDbg(dbg, $format("TagController write request ", fshow(awreq), " - ", fshow(wreq)));
+    //printDbg(dbg, $format("TagController write request ", fshow(awreq), " - ", fshow(wreq)));
   endrule
   // Ready if there is no write request or if the read request id is first.
   rule passCacheRead(!shimSlave.master.aw.canPeek || ((shimSlave.master.aw.peek.awid-shimSlave.master.ar.peek.arid)<4));
     let ar <- get(shimSlave.master.ar);
     tagCon.cache.request.put(axi2mem_req(Read(ar)));
     limiter.enq(?);
-    printDbg(dbg, $format("TagController read request ", fshow(ar)));
+    //printDbg(dbg, $format("TagController read request ", fshow(ar)));
   endrule
   rule passCacheResponse;
     CheriMemResponse mr <- tagCon.cache.response.get();
@@ -100,7 +100,7 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,1
       tagged Write .w: shimSlave.master.b.put(w);
       tagged Read  .r: shimSlave.master.r.put(r);
     endcase
-    printDbg(dbg, $format("TagController response ", fshow(ar)));
+    //printDbg(dbg, $format("TagController response ", fshow(ar)));
   endrule
 
   // Rules to forward requests from the tag controller to the master AXI interface.
@@ -114,22 +114,22 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,1
       end
       tagged Read .r: shimMaster.slave.ar.put(r);
     endcase
-    printDbg(dbg, $format("Memory request ", fshow(ar)));
+    //printDbg(dbg, $format("Memory request ", fshow(ar)));
   endrule
   (* descending_urgency = "passMemoryResponseRead, passMemoryResponseWrite" *)
   rule passMemoryResponseWrite;
     let rsp <- get(shimMaster.slave.b);
     CheriMemResponse mr = axi2mem_rsp(Write(rsp));
     tagCon.memory.response.put(mr);
-    printDbg(dbg, $format("Memory write response ", fshow(rsp)));
+    //printDbg(dbg, $format("Memory write response ", fshow(rsp)));
   endrule
   rule passMemoryResponseRead;
     let rsp <- get(shimMaster.slave.r);
     CheriMemResponse mr = axi2mem_rsp(Read(rsp));
     tagCon.memory.response.put(mr);
-    printDbg(dbg, $format("Memory read response ", fshow(rsp)));
+    //printDbg(dbg, $format("Memory read response ", fshow(rsp)));
   endrule
-  
+
   method clear = action
     newRst.assertReset;
     shimSlave.clear;

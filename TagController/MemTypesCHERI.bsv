@@ -10,7 +10,7 @@
  * Copyright (c) 2013 Simon W. Moore
  * Copyright (c) 2013 Alan A. Mujumdar
  * Copyright (c) 2014 Colin Rothwell
- * Copyright (c) 2014-2016 Alexandre Joannou
+ * Copyright (c) 2014-2019 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -288,7 +288,8 @@ instance DefaultValue#(MemoryRequest#(a,b,c,d))
             addr:           unpack(0),
             masterID:       unpack(0),
             transactionID:  unpack(0),
-            operation:      tagged CacheOp defaultValue
+            operation:      tagged CacheOp defaultValue,
+            cancelled:      False
         };
 endinstance
 
@@ -478,7 +479,12 @@ function MemoryResponse#(b,c,d) defaultRspFromReq(MemoryRequest#(a,b,c,d) req)
       if (wop.conditional) resp.operation = tagged SC True;
       else resp.operation = tagged Write;
     end
-    tagged Read    .rop: resp.operation = tagged Read {last: True};
+    tagged Read    .rop: resp.operation = tagged Read {
+                                            last: True
+                                            `ifdef USECAP
+                                            , tagOnlyRead: False
+                                            `endif
+                                          };
     tagged CacheOp .cop: resp.operation = tagged Write;
   endcase
   return resp;
