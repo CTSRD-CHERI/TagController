@@ -110,6 +110,7 @@ function CheriMemRequest axi2mem_req(MemReq#(id_, addr_) mr)
       };
     end
   endcase
+  req.addr.byteOffset = 0;
   return req;
 endfunction
 
