@@ -88,6 +88,7 @@ function CheriMemRequest axi2mem_req(MemReq#(id_, addr_) mr)
                     },
         cancelled: False
       };
+      req.addr.byteOffset = 0;
     end
     tagged Read .r: begin
       Bit#(TAdd#(id_, 1)) labelled_id = {1'b0,r.arid};
@@ -110,7 +111,6 @@ function CheriMemRequest axi2mem_req(MemReq#(id_, addr_) mr)
       };
     end
   endcase
-  req.addr.byteOffset = 0;
   return req;
 endfunction
 
