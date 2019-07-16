@@ -117,6 +117,17 @@ typedef struct {
   `endif
 } TagLine#(numeric type tagBits) deriving (Bits, Eq, Bounded, FShow);
 
+// Invalid tag constant to use for invalidating tags.
+TagLine#(tagBits) invTag = TagLine{
+  tag: 0,
+  valid: replicate(False),
+  pendMem: False,
+  dirty: False
+  `ifdef USECAP
+    , capTags: replicate(replicate(False))
+  `endif
+};
+
 typedef enum {Init, Serving} CacheState deriving (Bits, Eq, FShow);
 typedef enum {Serve, Writeback, MemResponse} LookupCommand deriving (Bits, Eq, FShow);
 
@@ -149,6 +160,7 @@ typedef struct {
   Bool                                           last;
   Bool                                          fresh;
   InvalidateToken#(ways, keyBits, tagBits) invalidate; // Token containing any invalidate request
+  TagLine#(tagBits)                      writebackTag; // Tags recorded for a line that is being written back.
   Error                                      rspError;
 } ControlToken#(numeric type ways, numeric type keyBits, numeric type tagBits) deriving (Bits, FShow);
 
@@ -169,9 +181,6 @@ typedef struct {
   ReqId               outId;
   Bool               cached;
   TagLine#(tagBits)  oldTag;
-  `ifdef USECAP
-    Vector#(Banks, CapTags) capTags;
-  `endif
   Way#(ways)         oldWay;
   Bool             oldDirty;
   Bool                write;
@@ -257,6 +266,7 @@ module mkCacheCore#(Bit#(16) cacheId,
   null_ct.req.masterID = -1; // Not matching any real master.
   null_ct.fresh = False;
   null_ct.invalidate.valid = False;
+  null_ct.writebackTag = invTag;
   ControlToken#(ways, keyBits, tagBits) initCt = null_ct;
   initCt.req = defaultValue;
   initCt.last = True;
@@ -312,12 +322,6 @@ module mkCacheCore#(Bit#(16) cacheId,
   // If the cache is writethrough, we never need to writeback.
   Bool roomForWriteback        = (writeThrough) ? True:(memReqFifoSpace >= 4 && orderer.mastReqsSpaces >= 4);
   Bool roomForReadAndWriteback = (writeThrough) ? roomForOneRequest:(memReqFifoSpace >= 5 && orderer.mastReqsSpaces >= 5);
-
-  // Invalid tag constant to use for invalidating tags.
-  TagLine#(tagBits) invTag = ?;
-  invTag.valid = replicate(False);
-  invTag.pendMem = False;
-  invTag.dirty = False;
   
   CheriMemResponse memResp = memRsps.first;
   ReqId memRspId = getRespId(memResp);
@@ -459,6 +463,7 @@ module mkCacheCore#(Bit#(16) cacheId,
         newCt.way = evict.way;
         evict.addr.bank = writebackWriteBank;
         newCt.addr = unpack(pack(evict.addr));
+        newCt.writebackTag = evict.tag;
         newCt.fresh = False;
         debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Started Eviction, evict write bank: %x ", $time, cacheId, writebackWriteBank, fshow(evict)));
         last = (writebackWriteBank == 3); // Signal the last eviction frame to the lookup stage.
@@ -477,6 +482,7 @@ module mkCacheCore#(Bit#(16) cacheId,
         newCt.way = evict.way;
         evict.addr.bank = invalidateWritebackWriteBank;
         newCt.addr = unpack(pack(evict.addr));
+        newCt.writebackTag = evict.tag;
         newCt.fresh = False;
         debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Started Invalidate Eviction, evict write bank: %x ", $time, cacheId, writebackWriteBank, fshow(evict)));
         last = (invalidateWritebackWriteBank == 3); // Signal the last eviction frame to the lookup stage.
@@ -626,8 +632,8 @@ module mkCacheCore#(Bit#(16) cacheId,
     
     Bool invalidateDone = False;
     Bool failedInvalidate = False;
-    VnD#(Way#(ways)) invPendWay = VnD{v: False, d: ?};
-    TagLine#(tagBits) shadowTag = ?;
+    VnD#(Way#(ways)) invPendWay = VnD{v: False, d: 0/*?*/};
+    TagLine#(tagBits) shadowTag = invTag/*?*/;
     if (supportInvalidates && ct.invalidate.valid) begin
       // Do tag match for invalidates ("shadow" tags, i.e. 2nd read port of tags).
       Vector#(ways,TagLine#(tagBits)) shadowTags = ?;
@@ -773,7 +779,7 @@ module mkCacheCore#(Bit#(16) cacheId,
                       bitEnable: -1,
                       data: Data{ data: dataRead.data
                       `ifdef USECAP
-                        , cap: tag.capTags[addr.bank]
+                        , cap: ct.writebackTag.capTags[addr.bank]
                       `endif
                       },
                       last: True
@@ -804,9 +810,9 @@ module mkCacheCore#(Bit#(16) cacheId,
         Bool last = getLastField(memResp);
         // Put in a Read flit by default so that the later "hack" will not interpret a Write command as a memory read fill.
         ct.req.operation = tagged Read {
-          uncached: ?,
-          linked: ?,
-          noOfFlits: ?,
+          uncached: False/*?*/,
+          linked: False/*?*/,
+          noOfFlits: 0/*?*/,
           bytesPerFlit: ?
           `ifdef USECAP
             ,tagOnlyRead: False
@@ -940,9 +946,6 @@ module mkCacheCore#(Bit#(16) cacheId,
             if (cached && readResponse) begin
               // Do fill
               data[way].write(ct.dataKey, DataMinusCapTags{data: wop.data.data});  
-              `ifdef USECAP
-                tag.capTags[ct.dataKey.bank] = wop.data.cap;
-              `endif
               `ifdef WRITEBACK_DCACHE
                 if (supportDirtyBytes) begin
                   dirtyBytes[way].write(ct.dataKey, unpack(0));  
@@ -955,6 +958,9 @@ module mkCacheCore#(Bit#(16) cacheId,
               // If pendMem is already clear, this line has been invalidated previously, so don't do a tag update.
               if (tag.pendMem) begin
                 tag.valid[addr.bank] = True;
+                `ifdef USECAP
+                  tag.capTags[ct.dataKey.bank] = wop.data.cap;
+                `endif
                 // If there was an error, declare the whole line valid to prevent deadlock due to repeated refetching.
                 // If we think there should be another response flit but there is not, this is also a serious error.
                 if (memResp.error!=NoError || lastlastMismatch) tag.valid = unpack(-1);
@@ -1206,6 +1212,9 @@ module mkCacheCore#(Bit#(16) cacheId,
                 tag      : tag.tag,
                 dirty    : (performWritethrough) ? False:True,
                 pendMem  : tag.pendMem,
+                `ifdef USECAP
+                  capTags : tag.capTags,
+                `endif
                 valid    : tag.valid
               };
               //if (!writeThrough && tag.dirty != True)
@@ -1305,6 +1314,9 @@ module mkCacheCore#(Bit#(16) cacheId,
                     tag     : addr.tag,
                     pendMem : True,
                     valid   : replicate(False),
+                    `ifdef USECAP
+                      capTags : replicate(replicate(False)),
+                    `endif
                     dirty   : False
                   };
                   writeTags = True;  // This must happen!
@@ -1320,9 +1332,6 @@ module mkCacheCore#(Bit#(16) cacheId,
                                                                   outId: getReqId(memReq),
                                                                   cached: cached,
                                                                   oldTag: tagUpdate.newTag,
-                                                                  `ifdef USECAP
-                                                                    capTags: replicate(replicate(False)),
-                                                                  `endif
                                                                   oldWay: way,
                                                                   oldDirty: tag.dirty&&any(id,tag.valid),
                                                                   write: isWrite
