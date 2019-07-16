@@ -191,11 +191,11 @@ module mkMultiLevelTagLookup #(
     zeroExtend(mReqs.remaining()), ff2fifof(mReqs), ff2fifof(mRsps));
 
   // current lookup's depth
-  Reg#(TDepth)    currentDepth     <- mkRegU();
-  Reg#(CapNumber) pendingCapNumber <- mkRegU();
-  Reg#(Vector#(CapsPerFlit,Bool)) pendingTags <- mkRegU();
-  Reg#(Vector#(CapsPerFlit,Bool)) pendingCapEnable <- mkRegU();
-  Vector#(tdepth,Reg#(Bit#(CheriDataWidth))) oldTags <- replicateM(mkRegU());
+  Reg#(TDepth)    currentDepth     <- mkReg(unpack(0));
+  Reg#(CapNumber) pendingCapNumber <- mkReg(unpack(0));
+  Reg#(Vector#(CapsPerFlit,Bool)) pendingTags <- mkReg(unpack(0));
+  Reg#(Vector#(CapsPerFlit,Bool)) pendingCapEnable <- mkReg(unpack(0));
+  Vector#(tdepth,Reg#(Bit#(CheriDataWidth))) oldTags <- replicateM(mkReg(unpack(0)));
 
   // module helper functions
   /////////////////////////////////////////////////////////////////////////////
@@ -318,7 +318,7 @@ module mkMultiLevelTagLookup #(
     mReq.masterID        = mID;
     mReq.transactionID   = transNum;
     CheriData wdata = Data {
-                cap: ?,
+                cap: unpack(0),
                 data: zeroExtend(newData) << {byteOffset,3'b0}
               };
     mReq.operation = tagged Write {
