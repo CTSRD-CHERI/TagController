@@ -25,6 +25,7 @@
  * @BERI_LICENSE_HEADER_END@
  */
 
+import Assert::*;
 import Vector::*;
 import MemTypesCHERI::*;
 import MasterSlaveCHERI::*;
@@ -33,11 +34,11 @@ import FF::*;
 import ConfigReg::*;
 import CacheCore::*;
 import DefaultValue::*;
+import TagTableStructure::*;
 `ifdef STATCOUNTERS
 import StatCounters::*;
 `endif
 import Debug::*;
-`include "MemLayout.defines"
 
 // interface types
 ///////////////////////////////////////////////////////////////////////////////
@@ -84,18 +85,6 @@ typedef UInt#(2) TDepth;
 
 function Bool andBool (Bool x, Bool y) = (x && y);
 
-// static parameters
-  /////////////////////////////////////////////////////////////////////////////
-
-// covered region include DRAM and BROM
-// starting address of the covered region
-CheriPhyAddr coveredStrtAddr = unpack(zeroExtend(`COVERED_START_40));
-// ending address of the covered region
-CheriPhyAddr coveredEndAddr  = unpack(zeroExtend(`COVERED_END_40));
-// tag table is at top of DRAM
-// starting address of the tags table
-CheriPhyAddr tagTabStrtAddr  = unpack(zeroExtend(`TAG_TABLE_START_40));
-
 // mkTagLookup module definition
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -110,10 +99,20 @@ module mkMultiLevelTagLookup #(
   parameter CheriPhyAddr tagTabEndAddr,
   // from leaf 0 ---> root n. telem = Integer
   parameter Vector#(tdepth, Integer) tableStructure,
+  parameter CheriPhyAddr tagTabStrtAddr,
   // Size of the memory covered
   parameter Integer memCoveredSize
 ) (TagLookupIfc);
 
+  // static parameters
+  /////////////////////////////////////////////////////////////////////////////
+
+  // covered region include DRAM and BROM
+  // starting address of the covered region
+  CheriPhyAddr coveredStrtAddr = unpack(fromInteger(covered_start_addr));
+  // ending address of the covered region
+  CheriPhyAddr coveredEndAddr  = unpack(fromInteger(covered_start_addr + covered_mem_size));
+  
   // root lvl
   TDepth rootLvl = fromInteger(valueof(tdepth)-1);
   TDepth leafLvl = 0;
@@ -161,6 +160,8 @@ module mkMultiLevelTagLookup #(
   //endfunction
   // table descriptor has leaf lvl 0 ---> root lvl n
   Vector#(tdepth,TableLvl) tableDesc = genWith (lvlDesc);
+
+  staticAssert(tagTabStrtAddr == tableDesc[valueof(tdepth)-1].startAddr, "Python-calculated table base != bluespec-calculated table base");
 
   // components instanciations
   /////////////////////////////////////////////////////////////////////////////
@@ -266,6 +267,7 @@ module mkMultiLevelTagLookup #(
     mReq.masterID        = mID;
     mReq.transactionID   = transNum;
     mReq.operation       = tagged Read {
+                              tagOnlyRead: False, // Fix when we support CLoadTags!
                               uncached: False,
                               linked: False,
                               noOfFlits: 0,

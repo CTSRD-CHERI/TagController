@@ -34,6 +34,9 @@ BLUEUTILSDIR = ./BlueStuff
 BSVPATH = +:BlueStuff:Test:Test/bluecheck:BlueStuff/BlueBasics:BlueStuff/BlueUtils:BlueStuff/AXI:TagController:TagController/CacheCore
 
 BSCFLAGS = -p $(BSVPATH) -D MEM128 -D CAP128 -D BLUESIM
+CAPSIZE = 128
+TAGS_STRUCT = 0 128
+TAGS_ALIGN = 16
 
 # generated files directories
 BUILDDIR = build
@@ -63,10 +66,13 @@ SIMTESTS = $(addprefix sim, $(notdir $(basename $(SIMTESTSSRC))))
 
 all: simTest
 
-simTest: $(TESTSDIR)/TestMemTop.bsv
+simTest: $(TESTSDIR)/TestMemTop.bsv TagController/TagTableStructure.bsv
 	mkdir -p $(OUTPUTDIR)/$@-info $(BDIR) $(SIMDIR)
 	$(BSC) -info-dir $(OUTPUTDIR)/$@-info -simdir $(SIMDIR) $(BSCFLAGS) -sim -g $(TOPMODULE) -u $<
 	CC=$(CC) CXX=$(CXX) $(BSC) -simdir $(SIMDIR) $(BSCFLAGS) -sim -e $(TOPMODULE) -o $(OUTPUTDIR)/$@
+	
+TagController/TagTableStructure.bsv: tagsparams.py
+	python $^ -v -c $(CAPSIZE) -s $(TAGS_STRUCT:"%"=%) -a $(TAGS_ALIGN) -b TagController/TagTableStructure.bsv
 
 
 .PHONY: clean mrproper all
@@ -74,6 +80,7 @@ simTest: $(TESTSDIR)/TestMemTop.bsv
 clean:
 	rm -f .simTests
 	rm -f -r $(BUILDDIR)
+	rm -f TagController/TagTableStructure.bsv
 
 mrproper: clean
 	rm -f -r $(OUTPUTDIR)
