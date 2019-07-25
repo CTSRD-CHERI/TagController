@@ -65,7 +65,7 @@ args = parser.parse_args()
 if args.verbose:
     def verboseprint(msg):
         print msg
-else:   
+else:
     verboseprint = lambda *a: None
 
 ####################################
@@ -163,7 +163,7 @@ if args.bsv_import_output:
     f.write("Integer table_end_addr = 'h%x;\n" % args.top_addr)
     f.write("Integer table_start_addr = 'h%x;\n" % lvls[len(lvls)-1].startAddr)
     f.write("Integer covered_start_addr = 'h%x;\n" % args.covered_start_addr);
-    f.write("Integer covered_mem_size  = 'h%x;\n" % (args.covered_start_addr + args.covered_mem_size));
+    f.write("Integer covered_mem_size  = 'h%x;\n" % args.covered_mem_size);
 #    map(f.write,fill)
 
 #######################################################
