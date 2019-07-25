@@ -8,7 +8,7 @@
  * This software was developed by SRI International and the University of
  * Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
  * ("CTSRD"), as part of the DARPA CRASH research programme.
- * 
+ *
  * This software was developed by SRI International and the University of
  * Cambridge Computer Laboratory (Department of Computer Science and
  * Technology) under DARPA contract HR0011-18-C-0016 ("ECATS"), as part of the
@@ -40,15 +40,14 @@ import Debug::*;
 import Connectable::*;
 import FF::*;
 import Vector::*;
+import TagTableStructure::*;
 `ifdef STATCOUNTERS
 import StatCounters::*;
-import TagTableStructure::*;
 `endif
 `ifndef NOTAG
 //import TagLookup::*;
 import MultiLevelTagLookup::*;
 `endif
-`include "MemLayout.defines"
 
 /******************************************************************************
  * mkTagController

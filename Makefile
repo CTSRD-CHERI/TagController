@@ -70,7 +70,7 @@ simTest: $(TESTSDIR)/TestMemTop.bsv TagController/TagTableStructure.bsv
 	mkdir -p $(OUTPUTDIR)/$@-info $(BDIR) $(SIMDIR)
 	$(BSC) -info-dir $(OUTPUTDIR)/$@-info -simdir $(SIMDIR) $(BSCFLAGS) -sim -g $(TOPMODULE) -u $<
 	CC=$(CC) CXX=$(CXX) $(BSC) -simdir $(SIMDIR) $(BSCFLAGS) -sim -e $(TOPMODULE) -o $(OUTPUTDIR)/$@
-	
+
 TagController/TagTableStructure.bsv: tagsparams.py
 	python $^ -v -c $(CAPSIZE) -s $(TAGS_STRUCT:"%"=%) -a $(TAGS_ALIGN) -b TagController/TagTableStructure.bsv
 

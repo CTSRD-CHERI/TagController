@@ -34,6 +34,7 @@ import FF::*;
 import ConfigReg::*;
 import CacheCore::*;
 import DefaultValue::*;
+import Printf::*;
 import TagTableStructure::*;
 `ifdef STATCOUNTERS
 import StatCounters::*;
@@ -161,7 +162,9 @@ module mkMultiLevelTagLookup #(
   // table descriptor has leaf lvl 0 ---> root lvl n
   Vector#(tdepth,TableLvl) tableDesc = genWith (lvlDesc);
 
-  staticAssert(tagTabStrtAddr == tableDesc[valueof(tdepth)-1].startAddr, "Python-calculated table base != bluespec-calculated table base");
+  staticAssert(tagTabStrtAddr == tableDesc[valueof(tdepth)-1].startAddr,
+    sprintf("Python-calculated table base 0x%0x != bluespec-calculated table base 0x%0x",
+    pack(tagTabStrtAddr), pack(tableDesc[valueof(tdepth)-1].startAddr)));
 
   // components instanciations
   /////////////////////////////////////////////////////////////////////////////
