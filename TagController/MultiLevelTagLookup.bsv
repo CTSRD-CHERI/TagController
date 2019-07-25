@@ -113,7 +113,7 @@ module mkMultiLevelTagLookup #(
   CheriPhyAddr coveredStrtAddr = unpack(fromInteger(covered_start_addr));
   // ending address of the covered region
   CheriPhyAddr coveredEndAddr  = unpack(fromInteger(covered_start_addr + covered_mem_size));
-  
+
   // root lvl
   TDepth rootLvl = fromInteger(valueof(tdepth)-1);
   TDepth leafLvl = 0;
@@ -164,7 +164,7 @@ module mkMultiLevelTagLookup #(
 
   staticAssert(tagTabStrtAddr == tableDesc[valueof(tdepth)-1].startAddr,
     sprintf("Python-calculated table base 0x%0x != bluespec-calculated table base 0x%0x",
-    pack(tagTabStrtAddr), pack(tableDesc[valueof(tdepth)-1].startAddr)));
+      pack(tagTabStrtAddr), pack(tableDesc[valueof(tdepth)-1].startAddr)));
 
   // components instanciations
   /////////////////////////////////////////////////////////////////////////////
