@@ -380,6 +380,7 @@ module mkMultiLevelTagLookup #(
   /////////////////////////////////////////////////////////////////////////////
   rule initialise (state == Init);
 //    `ifndef BLUESIM
+`ifndef RVFI_DII
       TableLvl t = tableDesc[rootLvl];
       // zero toplevel of tag table in memory
       if (zeroAddr < unpack(pack(t.startAddr) + fromInteger(t.size))) begin
@@ -408,7 +409,7 @@ module mkMultiLevelTagLookup #(
         transNum <= transNum + 1;
         zeroAddr.lineNumber <= zeroAddr.lineNumber + 1;
       end else 
-//    `endif
+`endif
     // when table zeroed, go to Serving state
     state <= Idle;
   endrule
