@@ -638,7 +638,7 @@ module mkMultiLevelTagLookup #(
         Vector#(CapsPerFlit,Bool) newPendingTags = unpack(0);
         Vector#(CapsPerFlit,Bool) newPendingCapEnable = unpack(0);
         // initialise a toplevel table lookup
-        CheriCapAddress capAddr = unpack(pack(req.addr));
+        CheriCapAddress capAddr = unpack(pack(req.addr) - pack(coveredStrtAddr));
         CheriMemRequest mReq = craftTagReadReq (rootLvl,capAddr.capNumber);
         case (req.operation) matches
           // when it's a read
