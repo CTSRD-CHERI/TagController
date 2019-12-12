@@ -622,7 +622,7 @@ module mkMultiLevelTagLookup #(
     // lookup Slave request interface
     //////////////////////////////////////////////////////
     interface CheckedPut request;
-      method Bool canPut() = (state == Idle);
+      method Bool canPut() = (state == Idle) && tagCacheReq.notFull;
       // tag request
       //////////////////////////////
       method Action put(CheriMemRequest req) if (state == Idle);
