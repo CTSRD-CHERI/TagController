@@ -40,14 +40,14 @@ import Debug::*;
 import Connectable::*;
 import FF::*;
 import Vector::*;
+import Bag::*;
+import VnD::*;
 import TagTableStructure::*;
 `ifdef STATCOUNTERS
 import StatCounters::*;
 `endif
-`ifndef NOTAG
 //import TagLookup::*;
 import MultiLevelTagLookup::*;
-`endif
 
 /******************************************************************************
  * mkTagController
@@ -77,12 +77,13 @@ typedef struct {
   Bit#(2) bank;
   CheriMasterID masterID;
   CheriTransactionID transactionID;
-} AddrFrame deriving(Bits, FShow);
+} AddrFrame deriving(Bits, Eq, FShow);
 
 // internal types
 ///////////////////////////////////////////////////////////////////////////////
 
 typedef enum {TagLookupReq, StdReq} MemReqType deriving (Bits, Eq);
+typedef 4 InFlight;
 
 // mkTagController module definition
 ///////////////////////////////////////////////////////////////////////////////
@@ -93,14 +94,12 @@ module mkTagController(TagControllerIfc);
   // constant parameters
   /////////////////////////////////////////////////////////////////////////////
 
-  `ifndef NOTAG
   // masterID used for memory requests from the lookup engine
   CheriMasterID mID = 1;
 
   // components instanciations
   /////////////////////////////////////////////////////////////////////////////
 
-  `ifndef NOTAG
   // tag lookup module
   //TagLookupIfc tagLookup <- mkTagLookup(mID);
   TagLookupIfc tagLookup <- mkMultiLevelTagLookup(
@@ -111,17 +110,17 @@ module mkTagController(TagControllerIfc);
                                 covered_mem_size
                             );
   // lookup responses fifo
-  FF#(CheriTagResponse,4) lookupRsp <- mkUGFFDebug("TagController_lookupRsp");
-  FF#(AddrFrame,4)          addrFrame <- mkUGFFDebug("TagController_addrFrame");
+  // Size of these structures must be >= number of outstandring requests from the L2.
+  Bag#(InFlight, ReqId, CheriTagResponse) lookupRsp <- mkSmallBag;
+  Bag#(InFlight, ReqId, AddrFrame)        addrFrame <- mkSmallBag;
+  FF#(ReqId, InFlight)                 tagOnlyReads <- mkUGFF();
   // lookup response frame to access (for multi-flit transactions)
   Reg#(Bit#(2)) frame <- mkReg(0);
-  `endif
   // memory requests fifo
   FF#(CheriMemRequest, 2)   mReqs <- mkFF();
   // memory responses fifo
   FF#(CheriMemResponse, 32) mRsps <- mkUGFFDebug("TagController_mRsps");
 
-  `ifndef NOTAG
   // module rules
   /////////////////////////////////////////////////////////////////////////////
 
@@ -133,75 +132,66 @@ module mkTagController(TagControllerIfc);
         $time, fshow(tagLookup.memory.request.peek())
     ));
     CheriMemRequest r <- tagLookup.memory.request.get();
-    if (r.operation matches tagged Write .wop) begin
-      mReqs.enq(r);
-    end else mReqs.enq(r);
+    mReqs.enq(r);
   endrule
   // drain tag lookup responses out of the tag lookup engine
-  mkConnection(tagLookup.cache.response,toCheckedPut(ff2fifof(lookupRsp)));
-  `endif
+  rule getTagLookupResponse;
+    CheriTagResponse tags <- tagLookup.cache.response.get();
+    debug2("tagcontroller", $display("<time %0t TagController> Completed lookup response: ", $time, fshow(tags)));
+    lookupRsp.insert(tags.id, tags);
+  endrule
 
   // helper functions / signals
   /////////////////////////////////////////////////////////////////////////////
-  // look at the next memory response
-  function CheriMemResponse peekMemResponse();
-    CheriMemResponse resp = mRsps.first;
-    CheriMemResponse newResp = resp;
-    if (addrFrame.first().tagOnlyRead && lookupRsp.notEmpty()) begin
-      newResp = CheriMemResponse{
-          masterID: addrFrame.first().masterID,
-          transactionID: addrFrame.first().transactionID,
-          error: NoError,
-          operation: tagged Read{last: True, tagOnlyRead: True}
-      };
-      `ifndef NOTAG
-        // look at the tag lookup response
-        case (lookupRsp.first()) matches
-          tagged Covered .ts : newResp.data.data = zeroExtend(pack(ts));
-          tagged Uncovered   : newResp.data.data = 0;
-        endcase
-      `endif
-      newResp.data.cap = unpack(0);
-    end else begin
-      // initialise new response to response coming from memory
-      newResp = resp;
-      // in case of read, need to construct the tags
-      if (resp.operation matches tagged Read .rop) begin
-        Vector#(TDiv#(CheriDataWidth,CapWidth),Bool) tags = replicate(True);
-        `ifndef NOTAG
-          // look at the tag lookup response
-          case (lookupRsp.first()) matches
-            tagged Covered .ts : tags = unpack(ts[addrFrame.first().bank + frame]);
-            tagged Uncovered   : tags = unpack(0);
-          endcase
-        `endif
-        // update the new response with appropriate tags
-        newResp.data.cap = tags;
-      end
-    end
-    return newResp;
-  endfunction
+  // generate the next memory response
+  ReqId respID = ?;
+  VnD#(CheriTagResponse) tagRsp = VnD{v: False, d: ?};
+  CheriMemResponse newResp = mRsps.first;
+  Bool tagsOnlyResponse = False;
+  Bool untrackedResponse = False;
+  if (mRsps.notEmpty) begin
+    if (mRsps.first().operation matches tagged Read .rop) begin
+      respID = getRespId(mRsps.first);
+      tagRsp = lookupRsp.isMember(respID);
+      Vector#(TDiv#(CheriDataWidth,CapWidth),Bool) tags = replicate(True);
+      AddrFrame thisAddrFrame = addrFrame.isMember(respID).d;
+      // look at the tag lookup response
+      case (tagRsp.d.tags) matches
+        tagged Covered .ts : tags = unpack(ts[thisAddrFrame.bank + frame]);
+        tagged Uncovered   : tags = unpack(0);
+      endcase
+      // update the new response with appropriate tags
+      newResp.data.cap = tags;
+    end else untrackedResponse = True; // Not used in this case!
+  end else if (tagOnlyReads.notEmpty() && frame==0) begin
+    respID = tagOnlyReads.first();
+    tagRsp = lookupRsp.isMember(respID);
+    newResp = CheriMemResponse{
+        masterID: respID.masterID,
+        transactionID: respID.transactionID,
+        error: NoError,
+        operation: tagged Read{last: True, tagOnlyRead: True},
+        data: unpack(0)
+    };
+    tagsOnlyResponse = True;
+    // look at the tag lookup response
+    case (tagRsp.d.tags) matches
+      tagged Covered .ts : newResp.data.data = zeroExtend(pack(ts));
+      tagged Uncovered   : newResp.data.data = 0;
+    endcase
+  end
 
   Bool slvCanPut =
-    `ifndef NOTAG
     tagLookup.cache.request.canPut() && !tagLookup.memory.request.canGet() &&
-    `endif
-    mReqs.notFull();
-    
+    mReqs.notFull() && tagOnlyReads.notFull();
+
   // Comment in when debugging flow control.
   //rule debug;
-  //  debug2("tagcontroller", $display("<time %0t TagController> slvCanPut(1):%x tagLookup.cache.request.canPut(1):%x tagLookup.memory.request.canGet(0):%x mReqs.notFull(1):%x", 
+  //  debug2("tagcontroller", $display("<time %0t TagController> slvCanPut(1):%x tagLookup.cache.request.canPut(1):%x tagLookup.memory.request.canGet(0):%x mReqs.notFull(1):%x",
   //                                   $time, slvCanPut, tagLookup.cache.request.canPut(), tagLookup.memory.request.canGet(), mReqs.notFull()));
   //endrule
 
-  Bool slvCanGet = mRsps.notEmpty();
-  `ifndef NOTAG
-  // If the tag is not ready for a read response, we can't get.
-  if (mRsps.first.operation matches tagged Read .rop &&& !lookupRsp.notEmpty()) slvCanGet = False;
-  if (addrFrame.notEmpty())
-    // this bit is the tagOnlyRead bit.
-    if (addrFrame.first().tagOnlyRead && lookupRsp.notEmpty()) slvCanGet = True;
-  `endif
+  Bool slvCanGet = tagRsp.v || untrackedResponse;
 
   // module Slave interface
   /////////////////////////////////////////////////////////////////////////////
@@ -224,41 +214,41 @@ module mkTagController(TagControllerIfc);
               last: wop.last
           };
         end
+        ReqId id = getReqId(req);
         Bool canDoEnq = True;
-        if (req.operation matches tagged Read .rop &&& rop.tagOnlyRead) canDoEnq=False;
+        if (req.operation matches tagged Read .rop &&& rop.tagOnlyRead) begin
+          canDoEnq=False;
+          tagOnlyReads.enq(id);
+        end
         if (canDoEnq) mReqs.enq(req);
-        `ifndef NOTAG
-          tagLookup.cache.request.put(req);
-          if (req.operation matches tagged Read .rop) begin
-            // Stash the frame of the incoming address so that we can select the correct tags for the response.
-            addrFrame.enq(AddrFrame{tagOnlyRead: rop.tagOnlyRead, bank: truncateLSB({req.addr.lineNumber[1:0],req.addr.byteOffset}), masterID: req.masterID, transactionID: req.transactionID});
-          end
-        `endif
+        tagLookup.cache.request.put(req);
+        if (req.operation matches tagged Read .rop) begin
+          // Stash the frame of the incoming address so that we can select the correct tags for the response.
+          addrFrame.insert(id, AddrFrame{tagOnlyRead: rop.tagOnlyRead, bank: truncateLSB({req.addr.lineNumber[1:0],req.addr.byteOffset}), masterID: req.masterID, transactionID: req.transactionID});
+        end
       endmethod
     endinterface
     // response side
     ///////////////////////////////////////////////////////
     interface CheckedGet response;
       method Bool canGet() = slvCanGet;
-      method CheriMemResponse peek() = peekMemResponse();
+      method CheriMemResponse peek() = newResp;
       method ActionValue#(CheriMemResponse) get() if (slvCanGet);
         // prepare memory response
-        CheriMemResponse resp = peekMemResponse();
+        CheriMemResponse resp = newResp;
+        ReqId id = getRespId(resp);
         // dequeue memory response fifo only when the response is not tagOnlyRead
-        Bool canDoDeq = True;
-        if (resp.operation matches tagged Read .rop &&& rop.tagOnlyRead==True) canDoDeq=False;
-        if (canDoDeq) mRsps.deq();
-        `ifndef NOTAG
+        if (!tagsOnlyResponse) mRsps.deq();
         // in case of read response ...
-        if (resp.operation matches tagged Read .rop) begin
+        if (resp.operation matches tagged Read .rop &&& !untrackedResponse) begin
           // on the last flit,
           if (rop.last || rop.tagOnlyRead) begin
-            lookupRsp.deq(); // dequeue the tag lookup response fifo
-            addrFrame.deq();
+            lookupRsp.remove(id); // dequeue the tag lookup response fifo
+            addrFrame.remove(id);
             frame <= 0;  // reset the current frame
+            if (rop.tagOnlyRead) tagOnlyReads.deq();
           end else frame <= frame + 1; // for non last flits, increment frame
         end else frame <= 0;
-        `endif
         debug2("tagcontroller", $display("<time %0t TagController> Returning response: ", $time, fshow(resp)));
         return resp;
       endmethod
@@ -274,20 +264,16 @@ module mkTagController(TagControllerIfc);
       method Bool canPut();
         return (mRsps.notFull() && tagLookup.memory.response.canPut());
       endmethod
-      method Action put(CheriMemResponse r) if (mRsps.notFull() && tagLookup.memory.response.canPut());
-        `ifdef NOTAG
+      method Action put(CheriMemResponse r);
+        MemReqType reqType = (r.masterID == mID) ? TagLookupReq : StdReq;
+        debug2("tagcontroller", $display("<time %0t TagController> response from memory: source=%x ", $time, reqType, fshow(r)));
+        if (reqType == TagLookupReq) begin
+          tagLookup.memory.response.put(r);
+          debug2("tagcontroller", $display("<time %0t TagController> tag response", $time));
+        end else begin
           mRsps.enq(r);
-        `else
-          MemReqType reqType = (r.masterID == mID) ? TagLookupReq : StdReq;
-          debug2("tagcontroller", $display("<time %0t TagController> response from memory: source=%x ", $time, reqType, fshow(r)));
-          if (reqType == TagLookupReq) begin
-            tagLookup.memory.response.put(r);
-            debug2("tagcontroller", $display("<time %0t TagController> tag response", $time));
-          end else begin
-            mRsps.enq(r);
-            debug2("tagcontroller", $display("<time %0t TagController> memory response", $time));
-          end
-        `endif
+          debug2("tagcontroller", $display("<time %0t TagController> memory response", $time));
+        end
       endmethod
     endinterface
   endinterface

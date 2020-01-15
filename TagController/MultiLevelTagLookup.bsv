@@ -45,10 +45,14 @@ import Debug::*;
 ///////////////////////////////////////////////////////////////////////////////
 
 typedef Vector#(4,Bit#(CapsPerFlit)) LineTags;
-typedef union tagged {
-  void Uncovered;
-  LineTags Covered;
-} CheriTagResponse deriving (Bits,FShow);
+
+typedef struct {
+  ReqId id;
+  union tagged {
+    void Uncovered;
+    LineTags Covered;
+  } tags;
+} CheriTagResponse deriving (Bits,Eq,FShow);
 
 interface TagLookupIfc;
   interface Slave#(CheriMemRequest, CheriTagResponse) cache;
@@ -175,6 +179,8 @@ module mkMultiLevelTagLookup #(
   Reg#(CheriPhyAddr) zeroAddr <- mkReg(tagTabStrtAddr);
   // transaction number for memory requests
   Reg#(CheriTransactionID) transNum <- mkReg(0);
+  // the request ID of the current lookup
+  Reg#(ReqId) reqeustId <- mkRegU;
   // pending read requests fifo covered or not
   FF#(Bool,1) readReqs <- mkLFF1();
   // lookup response fifo
@@ -367,7 +373,7 @@ module mkMultiLevelTagLookup #(
       $time, pendingCapNumber, currentDepth, newDepth, fshow(state), " -> ", fshow(newState)
     ));
   endaction;
-  
+
   rule feedTagCache;
     tagCache.put(tagCacheReq.first());
     tagCacheReq.deq();
@@ -408,7 +414,7 @@ module mkMultiLevelTagLookup #(
         // increment transaction number and address
         transNum <= transNum + 1;
         zeroAddr.lineNumber <= zeroAddr.lineNumber + 1;
-      end else 
+      end else
 `endif
     // when table zeroed, go to Serving state
     state <= Idle;
@@ -430,7 +436,7 @@ module mkMultiLevelTagLookup #(
       $time, getReq, useNextRsp.first(), fshow(state)
     ));
   endrule
-  
+
   // Main lookup rule
   /////////////////////////////////////////////////////////////////////////////
   rule doLookup (state != Idle && state != Init && useNextRsp.notFull);
@@ -707,6 +713,7 @@ module mkMultiLevelTagLookup #(
             "<time %0t TagLookup> memory not covered",
             $time
         ));
+        reqeustId <= getReqId(req);
       endmethod
     endinterface
 
@@ -714,15 +721,15 @@ module mkMultiLevelTagLookup #(
     //////////////////////////////////////////////////////
     interface CheckedGet response;
       method Bool canGet() = !readReqs.first() || lookupRsp.notEmpty();
-      method CheriTagResponse peek() = (readReqs.first()) ?
+      method CheriTagResponse peek() = CheriTagResponse{id: reqeustId, tags: (readReqs.first()) ?
           tagged Covered lookupRsp.first():
-          tagged Uncovered;
+          tagged Uncovered};
       method ActionValue#(CheriTagResponse) get() if (!readReqs.first() || lookupRsp.notEmpty());
         // put response together
-        CheriTagResponse tr = tagged Uncovered;
+        CheriTagResponse tr = CheriTagResponse{id: reqeustId, tags: tagged Uncovered};
         // in case of covered request, dequeue the lookup response
         if (readReqs.first()) begin
-          tr = tagged Covered lookupRsp.first();
+          tr = CheriTagResponse{id: reqeustId, tags: tagged Covered lookupRsp.first()};
           lookupRsp.deq();
         end
         // dequeue the pending request
