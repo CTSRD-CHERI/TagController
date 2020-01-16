@@ -82,6 +82,8 @@ typedef struct {
 // internal types
 ///////////////////////////////////////////////////////////////////////////////
 
+typedef TMax#(TDiv#(CapWidth, CheriDataWidth), 1) FlitsPerCap;
+typedef TMax#(TDiv#(CheriDataWidth,CapWidth), 1) CapsPerFlit;
 typedef enum {TagLookupReq, StdReq} MemReqType deriving (Bits, Eq);
 typedef 4 InFlight;
 
@@ -153,11 +155,11 @@ module mkTagController(TagControllerIfc);
     if (mRsps.first().operation matches tagged Read .rop) begin
       respID = getRespId(mRsps.first);
       tagRsp = lookupRsp.isMember(respID);
-      Vector#(TDiv#(CheriDataWidth,CapWidth),Bool) tags = replicate(True);
+      Vector#(CapsPerFlit,Bool) tags = replicate(True);
       AddrFrame thisAddrFrame = addrFrame.isMember(respID).d;
       // look at the tag lookup response
       case (tagRsp.d.tags) matches
-        tagged Covered .ts : tags = unpack(ts[thisAddrFrame.bank + frame]);
+        tagged Covered .ts : tags = unpack(ts[thisAddrFrame.bank + (frame >> valueOf(TLog#(FlitsPerCap)))]);
         tagged Uncovered   : tags = unpack(0);
       endcase
       // update the new response with appropriate tags
