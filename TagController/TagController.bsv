@@ -188,13 +188,15 @@ module mkTagController(TagControllerIfc);
     tagLookup.cache.request.canPut() && !tagLookup.memory.request.canGet() &&
     mReqs.notFull() && tagOnlyReads.notFull();
 
-  // Comment in when debugging flow control.
-  //rule debug;
-  //  debug2("tagcontroller", $display("<time %0t TagController> slvCanPut(1):%x tagLookup.cache.request.canPut(1):%x tagLookup.memory.request.canGet(0):%x mReqs.notFull(1):%x",
-  //                                   $time, slvCanPut, tagLookup.cache.request.canPut(), tagLookup.memory.request.canGet(), mReqs.notFull()));
-  //endrule
-
   Bool slvCanGet = tagRsp.v || untrackedResponse;
+
+  // Comment in when debugging flow control.
+  rule debug;
+    debug2("tagcontroller", $display("<time %0t TagController> slvCanPut:%x tagLookup.cache.request.canPut(1):%x tagLookup.memory.request.canGet(0):%x mReqs.notFull(1):%x",
+                                     $time, slvCanPut, tagLookup.cache.request.canPut(), tagLookup.memory.request.canGet(), mReqs.notFull()));
+    debug2("tagcontroller", $display("<time %0t TagController> slvCanGet:%x tagRsp.v(1):%x untrackedResponse(1):%x",
+                                     $time, slvCanGet, tagRsp.v, untrackedResponse));
+  endrule
 
   // module Slave interface
   /////////////////////////////////////////////////////////////////////////////
