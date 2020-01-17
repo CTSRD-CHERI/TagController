@@ -38,9 +38,9 @@ import Debug::*;
 typedef struct {
   Bool ongoing;
   ReqId id;
-  Flit first;
-  Flit last;
-  Flit next;
+  Bank first;
+  Bank last;
+  Bank next;
 } TransRecord deriving (Bits, Eq, FShow);
 
 TransRecord defaultTransRecord = TransRecord{
@@ -54,8 +54,8 @@ TransRecord defaultTransRecord = TransRecord{
 typedef struct {
   ReqId id;
   Line line;
-  Flit first;
-  Flit last;
+  Bank first;
+  Bank last;
   VnD#(ReqId) idBeforeMe;
 } ReqRec deriving (Bits, Eq, FShow);
 
@@ -83,14 +83,14 @@ interface CacheCorderer#(numeric type inFlight);
 
   method Bool   lookupCheckId(ReqId id);
   method Bool   lookupIsOngoing();
-  method Flit   lookupFlit(ReqId id, Flit original);
-  method Action lookupReport(ReqId id, Flit flit, Flit first, Flit last);
+  method Bank   lookupFlit(ReqId id, Bank original);
+  method Action lookupReport(ReqId id, Bank flit, Bank first, Bank last);
 
-  method Action slaveReq(ReqId id, Line line, Flit first, Flit last);
+  method Action slaveReq(ReqId id, Line line, Bank first, Bank last);
   method Bool   slaveReqServeReady(ReqId id, Line line);
-  method ActionValue#(Bool) slaveReqExecuteReady(ReqId id, Flit flit);
+  method ActionValue#(Bool) slaveReqExecuteReady(ReqId id, Bank flit);
   method Bool   slaveRspIsOngoing();
-  method Bool   slaveRspLast(ReqId id, Flit flit);
+  method Bool   slaveRspLast(ReqId id, Bank flit);
   method Action slaveRsp(ReqId id, Bool last);
   
   method Bool   mastReqsEmpty();
@@ -98,9 +98,9 @@ interface CacheCorderer#(numeric type inFlight);
   method Bit#(5) mastReqsSpaces();
   method CheriTransactionID mastNextId();
   method Bool mastCheckId(ReqId id);
-  method Action mastReq(ReqId id, Flit first, Flit last, Line line, Bool read);
+  method Action mastReq(ReqId id, Bank first, Bank last, Line line, Bool read);
   method Action mastRsp(ReqId id, Bool read, Bool last);
-  method Flit nextMastRspFlit(ReqId id, Bool read);
+  method Bank nextMastRspFlit(ReqId id, Bool read);
 endinterface: CacheCorderer
 
 module mkCacheCorderer#(Bit#(16) cacheId)(CacheCorderer#(inFlight));
@@ -120,8 +120,8 @@ module mkCacheCorderer#(Bit#(16) cacheId)(CacheCorderer#(inFlight));
   Reg#(TransRecord)                        mastRespState <- mkConfigReg(defaultTransRecord);
   FF#(CheriTransactionID, 16)                 mastReqIds <- mkUGFFFullOfUniqueInts(cacheId);
 
-  function Flit currentLookupFlit(VnD#(ReqRec) req, ReqId id, Flit defaultFlit);
-    Flit flit = defaultFlit;
+  function Bank currentLookupFlit(VnD#(ReqRec) req, ReqId id, Bank defaultFlit);
+    Bank flit = defaultFlit;
     // If we're in the middle of a lookup sequence for this one, keep going.
     if (lookupState.ongoing && id == lookupState.id)
       flit = lookupState.next;
@@ -150,15 +150,15 @@ module mkCacheCorderer#(Bit#(16) cacheId)(CacheCorderer#(inFlight));
   method Bool lookupIsOngoing();
     return lookupState.ongoing;
   endmethod
-  method Flit lookupFlit(ReqId id, Flit original);
+  method Bank lookupFlit(ReqId id, Bank original);
     VnD#(ReqRec) req = slaveReqs.isMember(id);
-    Flit next = currentLookupFlit(req, id, original);
+    Bank next = currentLookupFlit(req, id, original);
     return next;
   endmethod
   // First and last probably shouldn't be necessary here, but it's possible
   // that the request was inserted in the same cycle from a different rule,
   // so just take it again.
-  method Action lookupReport(ReqId id, Flit flit, Flit first, Flit last);
+  method Action lookupReport(ReqId id, Bank flit, Bank first, Bank last);
     VnD#(ReqRec) req = slaveReqs.isMember(id);
     TransRecord state = lookupState;
     if (req.v) begin
@@ -179,7 +179,7 @@ module mkCacheCorderer#(Bit#(16) cacheId)(CacheCorderer#(inFlight));
     lookupState <= state;
   endmethod
   
-  method Action slaveReq(ReqId id, Line line, Flit first, Flit last);
+  method Action slaveReq(ReqId id, Line line, Bank first, Bank last);
     // Check if there are any IDs outstanding on this address.
     VnD#(ReqId) idBeforeMe = slaveAddrs.isMember(line);
     ReqRec recReq = ReqRec{id: id, line: line, first: first, last: last, idBeforeMe: idBeforeMe};
@@ -200,7 +200,7 @@ module mkCacheCorderer#(Bit#(16) cacheId)(CacheCorderer#(inFlight));
     return ready;
   endmethod
   method Bool slaveRspIsOngoing() = slaveRespState.ongoing;
-  method ActionValue#(Bool) slaveReqExecuteReady(ReqId id, Flit flit);
+  method ActionValue#(Bool) slaveReqExecuteReady(ReqId id, Bank flit);
     VnD#(ReqRec) req = slaveReqs.isMember(id);
     TransRecord state = slaveRespState;
     
@@ -217,7 +217,7 @@ module mkCacheCorderer#(Bit#(16) cacheId)(CacheCorderer#(inFlight));
                                 ready, id, flit, anotherIdBlockingThisKey, fshow(req), fshow(slaveRespState)));
     return ready;
   endmethod
-  method Bool slaveRspLast(ReqId id, Flit flit);
+  method Bool slaveRspLast(ReqId id, Bank flit);
     VnD#(ReqRec) req = slaveReqs.isMember(id);
     return req.v && req.d.last == flit;
   endmethod
@@ -225,7 +225,7 @@ module mkCacheCorderer#(Bit#(16) cacheId)(CacheCorderer#(inFlight));
     VnD#(ReqRec) req = slaveReqs.isMember(id);
     //if (!req.v) $display("<time %0t, cache %0d, CacheCorderer> Panic! Delivering response for unrecorded ID! ", $time, cacheId, fshow(id));
     TransRecord state = slaveRespState;
-    Flit flit = state.next;
+    Bank flit = state.next;
     if (!state.ongoing) begin
       state = defaultTransRecord;
       state.id = id;
@@ -262,7 +262,7 @@ module mkCacheCorderer#(Bit#(16) cacheId)(CacheCorderer#(inFlight));
   endmethod
   method CheriTransactionID mastNextId() = mastReqIds.first();
   // Track metadata for master memory requests, but don't track writes for now.
-  method Action mastReq(ReqId id, Flit first, Flit last, Line line, Bool expectResponse);
+  method Action mastReq(ReqId id, Bank first, Bank last, Line line, Bool expectResponse);
     if (expectResponse) begin
       if (mastReqs.full) $display("<time %0t, cache %0d, CacheCorderer> Panic! Enquing mastReqs when full. ", $time, cacheId);
       ReqRec recReq = ReqRec{id: id, line: ?, first: first, last: last, idBeforeMe: ?};
@@ -275,7 +275,7 @@ module mkCacheCorderer#(Bit#(16) cacheId)(CacheCorderer#(inFlight));
   method Action mastRsp(ReqId id, Bool read, Bool last);
     VnD#(ReqRec) req = mastReqs.isMember(id);
     TransRecord state = mastRespState;
-    Flit flit = state.next;
+    Bank flit = state.next;
     if (read) begin
       if (!req.v) $display("<time %0t, cache %0d, CacheCorderer> Panic! Memory response for unrecorded ID! ", $time, cacheId, fshow(id));
       if (!state.ongoing) begin
@@ -300,10 +300,10 @@ module mkCacheCorderer#(Bit#(16) cacheId)(CacheCorderer#(inFlight));
       //debug2("trace", $display("mastAvailableIdTable:%b", pack(mastAvailableIdTable[1])));
     end
   endmethod
-  method Flit nextMastRspFlit(ReqId id, Bool read);
+  method Bank nextMastRspFlit(ReqId id, Bool read);
     VnD#(ReqRec) req = mastReqs.isMember(id);
     TransRecord state = mastRespState;
-    Flit flit = state.next;
+    Bank flit = state.next;
     if (read && !state.ongoing) flit = req.d.first;
     return flit;
   endmethod

@@ -41,6 +41,7 @@ import AXI4::*;
 import BlueUtils :: *;
 import TagController::*;
 import FIFO::*;
+import FIFOF::*;
 import Clocks :: *;
 
 /******************************************************************************
@@ -73,17 +74,30 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,6
   AXI4_Shim#(id_, addr_, 64, 0, CapsPerFlit, 0, 0, CapsPerFlit) shimSlave  <- mkAXI4ShimUGSizedFIFOF32;
   AXI4_Shim#(TAdd#(id_,1), addr_, 64, 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimUGSizedFIFOF32;
   FIFO#(Bit#(0)) limiter <- mkFIFO1;
+  let awreqff <- mkFIFOF;
+  let addrOffset <- mkReg(0);
+
+  rule getCacheAW;
+    let awreq <- get(shimSlave.master.aw);
+    awreqff.enq(awreq);
+  endrule
 
   // Rules to feed the tag controller from the slave AXI interface
   // Ready if there is no read request or if the write request id is first.
   (* descending_urgency = "passCacheRead, passCacheWrite" *)
   rule passCacheWrite(!shimSlave.master.ar.canPeek || ((shimSlave.master.ar.peek.arid-shimSlave.master.aw.peek.awid)<4));
-    let awreq <- get(shimSlave.master.aw);
+    let awreq = awreqff.first;
     let wreq <- get(shimSlave.master.w);
-    tagCon.cache.request.put(
-      axi2mem_req(Write(WriteReqFlit{aw: awreq, w: wreq}))
-    );
-    limiter.enq(?);
+    if (wreq.wlast) begin
+      addrOffset <= 0;
+      awreqff.deq;
+      limiter.enq(?);
+    end else begin
+      addrOffset <= addrOffset + (1 << pack(awreq.awsize));
+    end
+    awreq.awaddr = awreq.awaddr + addrOffset;
+    let mreq = axi2mem_req(Write(WriteReqFlit{aw: awreq, w: wreq}));
+    tagCon.cache.request.put(mreq);
     //printDbg(dbg, $format("TagController write request ", fshow(awreq), " - ", fshow(wreq)));
   endrule
   // Ready if there is no write request or if the read request id is first.
@@ -105,13 +119,20 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,6
   endrule
 
   // Rules to forward requests from the tag controller to the master AXI interface.
+  let doneSendingAW <- mkReg(False);
   rule passMemoryRequest;
     CheriMemRequest mr <- tagCon.memory.request.get();
     DRAMReq#(TAdd#(id_,1), addr_) ar = mem2axi_req(mr);
     case (ar) matches
       tagged Write .w: begin
-        shimMaster.slave.aw.put(w.aw);
+        let newDoneSendingAW = doneSendingAW;
+        if (!doneSendingAW) begin
+          shimMaster.slave.aw.put(w.aw);
+          newDoneSendingAW = True;
+        end
         shimMaster.slave.w.put(w.w);
+        if (w.w.wlast) newDoneSendingAW = False;
+        doneSendingAW <= newDoneSendingAW;
       end
       tagged Read .r: shimMaster.slave.ar.put(r);
     endcase

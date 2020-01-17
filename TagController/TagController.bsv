@@ -35,6 +35,7 @@
 
 import MasterSlaveCHERI::*;
 import MemTypesCHERI::*;
+import RoutableCHERI::*;
 import GetPut::*;
 import Debug::*;
 import Connectable::*;
@@ -84,7 +85,7 @@ typedef struct {
 
 typedef TMax#(TDiv#(CapWidth, CheriDataWidth), 1) FlitsPerCap;
 typedef TMax#(TDiv#(CheriDataWidth,CapWidth), 1) CapsPerFlit;
-typedef enum {TagLookupReq, StdReq} MemReqType deriving (Bits, Eq);
+typedef enum {TagLookupReq, StdReq} MemReqType deriving (FShow, Bits, Eq);
 typedef 4 InFlight;
 
 // mkTagController module definition
@@ -213,7 +214,8 @@ module mkTagController(TagControllerIfc);
               byteEnable: replicate(False),
               bitEnable: 0,
               data: wop.data,
-              last: wop.last
+              last: wop.last,
+              length: wop.length
           };
         end
         ReqId id = getReqId(req);
@@ -223,7 +225,7 @@ module mkTagController(TagControllerIfc);
           tagOnlyReads.enq(id);
         end
         if (canDoEnq) mReqs.enq(req);
-        tagLookup.cache.request.put(req);
+        if (getLastField(req)) tagLookup.cache.request.put(req);
         if (req.operation matches tagged Read .rop) begin
           // Stash the frame of the incoming address so that we can select the correct tags for the response.
           addrFrame.insert(id, AddrFrame{tagOnlyRead: rop.tagOnlyRead, bank: truncateLSB({req.addr.lineNumber[1:0],req.addr.byteOffset}), masterID: req.masterID, transactionID: req.transactionID});
@@ -268,7 +270,7 @@ module mkTagController(TagControllerIfc);
       endmethod
       method Action put(CheriMemResponse r);
         MemReqType reqType = (r.masterID == mID) ? TagLookupReq : StdReq;
-        debug2("tagcontroller", $display("<time %0t TagController> response from memory: source=%x ", $time, reqType, fshow(r)));
+        debug2("tagcontroller", $display("<time %0t TagController> response from memory: source=%x ", $time, fshow(reqType), fshow(r)));
         if (reqType == TagLookupReq) begin
           tagLookup.memory.response.put(r);
           debug2("tagcontroller", $display("<time %0t TagController> tag response", $time));

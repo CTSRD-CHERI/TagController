@@ -88,14 +88,14 @@ typedef CheriPhyByteOffset Offset;
 typedef struct {
   Tag#(tagBits)    tag;
   Key#(keyBits)    key;
-  Flit            bank;
+  Bank         bank;
   Offset        offset;
 } CacheAddress#(numeric type keyBits, numeric type tagBits) deriving (Bits, Eq, Bounded, FShow);
 typedef Bit#(TLog#(ways)) Way#(numeric type ways);
 
 typedef struct {
   Key#(keyBits) key;
-  Flit          bank;
+  Bank      bank;
 } DataKey#(numeric type ways, numeric type keyBits) deriving (Bits, Eq, Bounded, FShow);
 
 typedef struct {
@@ -279,14 +279,14 @@ module mkCacheCore#(Bit#(16) cacheId,
   FF#(Bool, 16)                                             req_commits <- mkUGFFBypass; // Plenty big!
   
   FIFOF#(AddrTagWay#(ways, keyBits, tagBits))                writebacks <- mkUGFIFOF1;
-  Reg#(Flit)                                         writebackWriteBank <- mkConfigReg(0);
+  Reg#(Bank)                                     writebackWriteBank <- mkConfigReg(0);
   // Only used if "supportDirtyBytes" is set, currently in the DCache when it is in Writeback mode.
   `ifdef WRITEBACK_DCACHE
     Vector#(ways,MEM#(DataKey#(ways, keyBits), ByteEnable))    dirtyBytes <- replicateM(mkMEMNoFlow());
   `endif
   // These will only be used if "supportInvalidates" is set, as selected below.
   FIFOF#(AddrTagWay#(ways, keyBits, tagBits))      invalidateWritebacks <- mkUGFIFOF1;
-  Reg#(Flit)                               invalidateWritebackWriteBank <- mkConfigReg(0);
+  Reg#(Bank)                               invalidateWritebackWriteBank <- mkConfigReg(0);
   FF#(CheriPhyAddr,4)                                       invalidates <- mkUGFFDebug("CacheCore_invalidates");
   FF#(InvalidateToken#(ways, keyBits, tagBits),8)    delayedInvalidates <- mkUGFFDebug("CacheCore_delayedInvalidates");
   FF#(Bool,32)                                          invalidatesDone <- mkUGFFDebug("CacheCore_invalidatesDone");
@@ -348,7 +348,7 @@ module mkCacheCore#(Bit#(16) cacheId,
     nextEmpty <= orderer.reqsEmpty;
   endrule
 
-  function ActionValue#(VnD#(Way#(ways))) findWay(Vector#(ways,TagLine#(tagBits)) tagVec,Tag#(tagBits) tag, Flit bank
+  function ActionValue#(VnD#(Way#(ways))) findWay(Vector#(ways,TagLine#(tagBits)) tagVec,Tag#(tagBits) tag, Bank bank
     `ifdef USECAP
       , Bool tagOnlyRead
     `endif
@@ -404,7 +404,7 @@ module mkCacheCore#(Bit#(16) cacheId,
       valid = True;
       Flit size = 0;
       if (newCt.req.operation matches tagged Read .rop) size = rop.noOfFlits;
-      orderer.lookupReport(getReqId(newCt.req), newCt.addr.bank, newCt.addr.bank, newCt.addr.bank + size);
+      orderer.lookupReport(getReqId(newCt.req), newCt.addr.bank, newCt.addr.bank, newCt.addr.bank + truncate(size));
     end else begin
       // All the "non-fresh" cases which are less timing critical.
       CheriMemRequest lookupReq = defaultValue;
@@ -437,7 +437,7 @@ module mkCacheCore#(Bit#(16) cacheId,
         CacheAddress#(keyBits, tagBits) ca = newCt.addr;
         Flit size = 0;
         if (newCt.req.operation matches tagged Read .rop) size = rop.noOfFlits;
-        orderer.lookupReport(getReqId(newCt.req), ca.bank, ca.bank, ca.bank + size);
+        orderer.lookupReport(getReqId(newCt.req), ca.bank, ca.bank, ca.bank + truncate(size));
       end
       
       if ((memRsps.notEmpty && !orderer.slaveRspIsOngoing()) || !orderer.slaveReqServeReady(reqId,truncateLSB(lookupReq.addr.lineNumber))) begin
@@ -467,7 +467,7 @@ module mkCacheCore#(Bit#(16) cacheId,
         newCt.fresh = False;
         debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Started Eviction, evict write bank: %x ", $time, cacheId, writebackWriteBank, fshow(evict)));
         last = (writebackWriteBank == 3); // Signal the last eviction frame to the lookup stage.
-        Flit nextFetch = writebackWriteBank + 1;
+        Bank nextFetch = writebackWriteBank + 1;
         if (writebackWriteBank == 3) begin
           writebacks.deq();
           writebackWriteBank <= 0;
@@ -486,7 +486,7 @@ module mkCacheCore#(Bit#(16) cacheId,
         newCt.fresh = False;
         debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Started Invalidate Eviction, evict write bank: %x ", $time, cacheId, writebackWriteBank, fshow(evict)));
         last = (invalidateWritebackWriteBank == 3); // Signal the last eviction frame to the lookup stage.
-        Flit nextFetch = invalidateWritebackWriteBank + 1;
+        Bank nextFetch = invalidateWritebackWriteBank + 1;
         if (invalidateWritebackWriteBank == 3) begin
           invalidateWritebacks.deq();
           invalidateWritebackWriteBank <= 0;
@@ -782,7 +782,8 @@ module mkCacheCore#(Bit#(16) cacheId,
                         , cap: ct.writebackTag.capTags[addr.bank]
                       `endif
                       },
-                      last: True
+                      last: True,
+                      length: 0
                   };
           req.addr = unpack(pack(ct.addr));
           req.masterID = truncate(cacheId);
@@ -836,7 +837,7 @@ module mkCacheCore#(Bit#(16) cacheId,
             reqId = reqRec.inId;
             // Early indication that a slave response based on this master response can proceed.
             
-            Flit rspFlit = orderer.nextMastRspFlit(getRespId(memResp), True);
+            Bank rspFlit = orderer.nextMastRspFlit(getRespId(memResp), True);
             // If this is the next flit expected
             exeThisReq <- orderer.slaveReqExecuteReady(reqId,rspFlit);
             
@@ -866,7 +867,8 @@ module mkCacheCore#(Bit#(16) cacheId,
                                     byteEnable: replicate(True),
                                     bitEnable: -1,
                                     data: memResp.data,
-                                    last: last
+                                    last: last,
+                                    length: ?
                                   };
             case (memResp.operation) matches
               tagged Read .rr: begin
@@ -1299,11 +1301,11 @@ module mkCacheCore#(Bit#(16) cacheId,
               // Report the new memory request to the orderer so that it can track the responses.
               CacheAddress#(keyBits, tagBits) ca = unpack(pack(memReq.addr));
               Bool read = False;
-              Flit first = ca.bank;
-              Flit last = first + 0;
+              Bank first = ca.bank;
+              Bank last = first + 0;
               if (memReq.operation matches tagged Read .rop) begin
                 read = True;
-                last = first + rop.noOfFlits;
+                last = first + truncate(rop.noOfFlits);
               end
               orderer.mastReq(outReqId, first, last, truncateLSB(memReq.addr.lineNumber), expectResponse); 
               debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Issuing external memory request, memReqs.notFull:%x, memReqFifoSpace:%x ", 
@@ -1658,7 +1660,7 @@ module mkCacheCore#(Bit#(16) cacheId,
     // Report the fresh request to the orderer module.
     Flit noOfFlits = 0;
     if (req.operation matches tagged Read .rop) noOfFlits = rop.noOfFlits;
-    orderer.slaveReq(id, truncateLSB(pack(req.addr.lineNumber)), ca.bank, ca.bank + noOfFlits);
+    orderer.slaveReq(id, truncateLSB(pack(req.addr.lineNumber)), ca.bank, ca.bank + truncate(noOfFlits));
     newReq <= VnD{v: True, d: req};
   endmethod
   

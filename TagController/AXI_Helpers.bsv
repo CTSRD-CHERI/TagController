@@ -84,7 +84,8 @@ function CheriMemRequest axi2mem_req(MemReq#(id_, addr_) mr)
                         byteEnable: unpack(truncate(w.w.wstrb)),
                         bitEnable: -1,
                         data: Data{cap: unpack(w.w.wuser), data: truncate(w.w.wdata)},
-                        last: w.w.wlast
+                        last: w.w.wlast,
+                        length: w.aw.awlen
                     },
         cancelled: False
       };

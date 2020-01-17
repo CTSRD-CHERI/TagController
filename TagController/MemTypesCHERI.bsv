@@ -49,7 +49,7 @@
 `endif
 
 typedef 8 MaxTransactions;
-typedef 4 MaxNoOfFlits;
+typedef 8 MaxNoOfFlits;
 typedef MaxNoOfFlits CheriBurstSize;
 
 `ifdef CAP
@@ -275,6 +275,8 @@ typedef struct {
             // at the bottom so we can "truncate(pack())" this field 
             // to get the data without "matches".
             Data#(data_width) data;
+            // Number of flits in burst
+            Bit#(8) length;
         } Write;
         // for a cache operation
         CacheOperation CacheOp;
@@ -324,6 +326,7 @@ instance FShow#(MemoryRequest#(a,b,c,d))
                 $format(" | conditional: ") + fshow(wop.conditional) +
                 $format(" | byteEnable: 0x%0x", pack(wop.byteEnable)) +
                 $format(" | bitEnable: 0x%0x", pack(wop.bitEnable)) +
+                $format(" | length: %0d", wop.length) +
                 $format(" | last: ") + fshow(wop.last) +
                 $format(" | data: ") + fshow(wop.data)
             );
@@ -354,6 +357,7 @@ typedef struct {
 } ReqId deriving (Bits, Eq, FShow);
 
 typedef 4 Banks;
+typedef UInt#(2) Bank;
 
 `ifdef MULTI
   typedef 7 Indices; // Go conservative for multicore.

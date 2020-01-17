@@ -338,7 +338,8 @@ module mkMultiLevelTagLookup #(
                           byteEnable: wbyteE,
                           bitEnable: wbitE,
                           data: wdata,
-                          last: True
+                          last: True,
+                          length: 0
                         };
     return mReq;
   endfunction
