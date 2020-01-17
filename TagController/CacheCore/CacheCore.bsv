@@ -1438,8 +1438,8 @@ module mkCacheCore#(Bit#(16) cacheId,
                 Integer i;
                 for (i=0; i<valueOf(CapsPerFlit); i=i+1) begin
                   Integer bot = i*valueOf(CapBytes);
-                  Integer top = bot + valueOf(CapBytes) - 1;
-                  Bit#(CapBytes) capBytes = pack(wop.byteEnable)[top:bot];
+                  Integer top = bot + valueOf(CapBytes);
+                  Bit#(CapBytes) capBytes = pack(wop.byteEnable)[min(top,valueOf(CheriBusBytes))-1:bot];
                   if (capBytes != 0) capTags[i] = wop.data.cap[i];
                 end
                 //$display("capTags: %x", capTags);

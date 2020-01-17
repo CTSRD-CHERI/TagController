@@ -56,11 +56,11 @@ instance DefaultValue#(RspFlit#(id_, data_, tag_));
   function defaultValue = tagged Write defaultValue;
 endinstance
 
-typedef ReqFlit#(id_, addr_, 128, CapsPerFlit) MemReq#(numeric type id_, numeric type addr_);
-typedef RspFlit#(id_, 128, CapsPerFlit)        MemRsp#(numeric type id_);
+typedef ReqFlit#(id_, addr_, 64, CapsPerFlit) MemReq#(numeric type id_, numeric type addr_);
+typedef RspFlit#(id_, 64, CapsPerFlit)        MemRsp#(numeric type id_);
 
-typedef ReqFlit#(id_, addr_, 128, 0) DRAMReq#(numeric type id_, numeric type addr_);
-typedef RspFlit#(id_, 128, 0)        DRAMRsp#(numeric type id_);
+typedef ReqFlit#(id_, addr_, 64, 0) DRAMReq#(numeric type id_, numeric type addr_);
+typedef RspFlit#(id_, 64, 0)        DRAMRsp#(numeric type id_);
 
 // Request ranslators between AXI and CHERI Memory
 
@@ -121,13 +121,13 @@ function DRAMReq#(id_, addr_) mem2axi_req(CheriMemRequest mr)
     tagged Write .w: begin
       //XXX horrible hack - from 40 bits restriction
       // support addresses up to 64 bits, only considers bottom 40 bits
-      Bit#(64) tmp = zeroExtend(pack(mr.addr) & (~0 << pack(BYTE_16)));
+      Bit#(64) tmp = zeroExtend(pack(mr.addr) & (~0 << pack(BYTE_8)));
       req = tagged Write WriteReqFlit{
         aw: AXI4_AWFlit{
           awid: truncate(pack(getReqId(mr))),
           awaddr: truncate(tmp),
-          awlen: 0,
-          awsize: unpack(pack(BYTE_16)), // 16 bytes
+          awlen: w.length,
+          awsize: unpack(pack(BYTE_8)), // 8 bytes
           awburst: INCR,
           awlock: NORMAL,
           awcache: ((w.uncached) ? 0:15), // unached or fully cached

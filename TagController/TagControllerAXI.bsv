@@ -59,19 +59,19 @@ interface TagControllerAXI#(
   method Action clear;
 endinterface
 
-module mkTagControllerAXI(TagControllerAXI#(id_, addr_,128))
+module mkTagControllerAXI(TagControllerAXI#(id_, addr_,64))
   provisos (Add#(a__, id_, SizeOf#(ReqId)), Add#(b__, TAdd#(id_, 1), SizeOf#(ReqId)), Add#(c__, addr_, 64));
   let tmp <- mkDbgTagControllerAXI(Invalid);
   return tmp;
 endmodule
-module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,128))
+module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,64))
   provisos (Add#(a__, id_, SizeOf#(ReqId)), Add#(b__, TAdd#(id_, 1), SizeOf#(ReqId)), Add#(c__, addr_, 64));
   let    clk <- exposeCurrentClock;
   let newRst <- mkReset(0, True, clk);
   TagControllerIfc tagCon <- mkTagController(reset_by newRst.new_rst);
   //Workaround: these are being enqueued while full in Piccolo. Made the buffer size larger (32 from 4)
-  AXI4_Shim#(id_, addr_, 128, 0, CapsPerFlit, 0, 0, CapsPerFlit) shimSlave  <- mkAXI4ShimUGSizedFIFOF32;
-  AXI4_Shim#(TAdd#(id_,1), addr_, 128, 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimUGSizedFIFOF32;
+  AXI4_Shim#(id_, addr_, 64, 0, CapsPerFlit, 0, 0, CapsPerFlit) shimSlave  <- mkAXI4ShimUGSizedFIFOF32;
+  AXI4_Shim#(TAdd#(id_,1), addr_, 64, 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimUGSizedFIFOF32;
   FIFO#(Bit#(0)) limiter <- mkFIFO1;
 
   // Rules to feed the tag controller from the slave AXI interface

@@ -128,7 +128,7 @@ endinstance
 `endif
 typedef 40 AddrWidth;
 `ifdef USECAP
-  typedef TDiv#(CheriBusBytes,CapBytes) CapsPerFlit;
+  typedef TMax#(TDiv#(CheriBusBytes,CapBytes),1) CapsPerFlit;
   typedef Vector#(CapsPerFlit,Bool) CapTags;
   typedef Bit#(TSub#(AddrWidth,TLog#(CapBytes))) CapNumber;
   typedef struct {

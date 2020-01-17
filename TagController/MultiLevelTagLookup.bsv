@@ -304,7 +304,7 @@ module mkMultiLevelTagLookup #(
       z = True; // we need zeroing
       Integer i = 0;
       CheriPhyByteOffset nodeOffset = byteOffset&(~0 << (t.groupFactorLog - 3));
-      for (i = 0; i < (div(t.groupFactor,8)); i = i + 1) begin
+      for (i = 0; i < (div(t.groupFactor,16)); i = i + 1) begin
         wbyteE[nodeOffset+fromInteger(i)] = True;
       end
     end
@@ -663,7 +663,7 @@ module mkMultiLevelTagLookup #(
             Integer i = 0;
             Integer bot = 0;
             for (i = 0; i < valueOf(CapsPerFlit); i = i + 1) begin
-              Bit#(CapBytes) capBEs = pack(wop.byteEnable)[bot+valueOf(CapBytes)-1:bot];
+              Bit#(CapBytes) capBEs = pack(wop.byteEnable)[bot+valueOf(TMin#(CheriBusBytes, CapBytes))-1:bot];
               capEnable[i] = (capBEs == 0) ? False:True;
               bot = bot + valueOf(CapBytes);
             end
