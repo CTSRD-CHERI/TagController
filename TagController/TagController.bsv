@@ -160,7 +160,7 @@ module mkTagController(TagControllerIfc);
       AddrFrame thisAddrFrame = addrFrame.isMember(respID).d;
       // look at the tag lookup response
       case (tagRsp.d.tags) matches
-        tagged Covered .ts : tags = unpack(ts[thisAddrFrame.bank + (frame >> valueOf(TLog#(FlitsPerCap)))]);
+        tagged Covered .ts : tags = unpack(ts[thisAddrFrame.bank + truncate(frame >> valueOf(TLog#(FlitsPerCap)))]);
         tagged Uncovered   : tags = unpack(0);
       endcase
       // update the new response with appropriate tags
