@@ -118,7 +118,7 @@ module mkTagController(TagControllerIfc);
   Bag#(InFlight, ReqId, AddrFrame)        addrFrame <- mkSmallBag;
   FF#(ReqId, InFlight)                 tagOnlyReads <- mkUGFF();
   // lookup response frame to access (for multi-flit transactions)
-  Reg#(Bit#(2)) frame <- mkReg(0);
+  Reg#(Bit#(3)) frame <- mkReg(0);
   // memory requests fifo
   FF#(CheriMemRequest, 2)   mReqs <- mkFF();
   // memory responses fifo
