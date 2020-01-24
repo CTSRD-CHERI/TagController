@@ -123,12 +123,13 @@ function DRAMReq#(id_, addr_) mem2axi_req(CheriMemRequest mr)
       //XXX horrible hack - from 40 bits restriction
       // support addresses up to 64 bits, only considers bottom 40 bits
       Bit#(64) tmp = zeroExtend(pack(mr.addr) & (~0 << pack(BYTE_8)));
+      Bit#(4) byteEnableOnes = pack(countOnes(pack(w.byteEnable)));
       req = tagged Write WriteReqFlit{
         aw: AXI4_AWFlit{
           awid: truncate(pack(getReqId(mr))),
-          awaddr: truncate(tmp),
+          awaddr: truncate(tmp + zeroExtend(pack(countZerosLSB(pack(w.byteEnable))))),
           awlen: w.length,
-          awsize: unpack(pack(BYTE_8)), // 8 bytes
+          awsize: unpack(pack(countZerosLSB(byteEnableOnes))), // XXX: Must have power-of-two number of byte-enables set
           awburst: INCR,
           awlock: NORMAL,
           awcache: ((w.uncached) ? 0:15), // unached or fully cached
