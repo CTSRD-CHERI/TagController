@@ -125,7 +125,6 @@ module mkMultiLevelTagLookup #(
   // table descriptor
   function TableLvl lvlDesc (Integer d);
     Integer sz;
-    if (d < 0) let _ = error("MultiLevelTagLookup: negative table level " + integerToString(d));
     // leaf lvl
     sz = div(memCoveredSize,8*valueof(CapBytes));
     TableLvl tlvl = TableLvl {
@@ -136,26 +135,29 @@ module mkMultiLevelTagLookup #(
           groupFactorLog: 0
       };
     // intermediate node lvl
-    if (d != 0) begin
+    if (d > 0) begin
       TableLvl t = lvlDesc(d-1);
       if (tableStructure[d] > valueof(CheriDataWidth) || tableStructure[d] < 2)
-        let _ = error("grouping factor " + integerToString(tableStructure[d]) +
-          " must be between 2 and "+ integerToString(valueof(CheriDataWidth)) +
-          " (for clearing tags algorithm)");
-      if (mod(t.size,tableStructure[d]) != 0)
-        let _ = error("table level " + integerToString(d) +
+        tlvl = error("grouping factor " + integerToString(tableStructure[d]) +
+          " must be between 2 and CheriDataWidth ("+ integerToString(valueof(CheriDataWidth)) +
+          ") (for clearing tags algorithm)");
+      else if (mod(t.size * 8,tableStructure[d]) != 0)
+        tlvl = error("table level " + integerToString(d) +
           ", invalid grouping factor " + integerToString(tableStructure[d]) +
-          " ("+integerToString(t.size) +
-          "not divisible by "+integerToString(tableStructure[d])+")");
-      sz = div(t.size, tableStructure[d]);
-      tlvl = TableLvl {
-          startAddr: unpack(pack(t.startAddr)-fromInteger(sz)),
-          size: sz,
-          shiftAmnt: t.shiftAmnt + log2(tableStructure[d]),
-          groupFactor: tableStructure[d],
-          groupFactorLog: log2(tableStructure[d])
-      };
-    end
+          " ("+integerToString(t.size * 8) +
+          " (bit size of the level) not divisible by "+integerToString(tableStructure[d])+")");
+      else begin
+        sz = div(t.size, tableStructure[d]);
+        tlvl = TableLvl {
+            startAddr: unpack(pack(t.startAddr)-fromInteger(sz)),
+            size: sz,
+            shiftAmnt: t.shiftAmnt + log2(tableStructure[d]),
+            groupFactor: tableStructure[d],
+            groupFactorLog: log2(tableStructure[d])
+        };
+      end
+    end else
+      if (d < 0) tlvl = error("MultiLevelTagLookup: negative table level " + integerToString(d));
     // force the table start address to be "flit" alligned
     // XXX necessary for the tag clear algorithm to work
     // XXX (it relies on all tags of a node being returned in a single mem rsp)
