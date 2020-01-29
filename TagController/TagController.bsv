@@ -184,9 +184,16 @@ module mkTagController(TagControllerIfc);
     endcase
   end
 
+  // If we receive a multiflit write, we need to ensure we forward the two halves together.
+  // Store the first half of these transactions. When the second arrives, the first is sent
+  // and the second is stored in this register, which then gets priority on being sent next.
+  Reg#(Maybe#(CheriMemRequest)) halfWrite <- mkReg(Invalid);
+
+  Bool sendHalfWrite = halfWrite matches tagged Valid .req &&& getLastField(req) ? True : False;
+
   Bool slvCanPut =
     tagLookup.cache.request.canPut() && !tagLookup.memory.request.canGet() &&
-    mReqs.notFull() && tagOnlyReads.notFull();
+    mReqs.notFull() && tagOnlyReads.notFull() && !sendHalfWrite;
 
   Bool slvCanGet = tagRsp.v || untrackedResponse;
 
@@ -196,6 +203,12 @@ module mkTagController(TagControllerIfc);
                                      $time, slvCanPut, tagLookup.cache.request.canPut(), tagLookup.memory.request.canGet(), mReqs.notFull()));
     debug2("tagcontroller", $display("<time %0t TagController> slvCanGet:%x tagRsp.v(1):%x untrackedResponse(1):%x",
                                      $time, slvCanGet, tagRsp.v, untrackedResponse));
+  endrule
+
+
+  rule sendSecondHalfWrite(mReqs.notFull() && sendHalfWrite);
+    mReqs.enq(halfWrite.Valid);
+    halfWrite <= Invalid;
   endrule
 
   // module Slave interface
@@ -226,7 +239,12 @@ module mkTagController(TagControllerIfc);
           canDoEnq=False;
           tagOnlyReads.enq(id);
         end
-        if (canDoEnq) mReqs.enq(req);
+        if (req.operation matches tagged Write .wop &&& wop.length != 0) begin
+          if (halfWrite matches tagged Valid .firstHalf) mReqs.enq(firstHalf);
+          halfWrite <= Valid (req);
+        end else begin
+          if (canDoEnq) mReqs.enq(req);
+        end
         if (getLastField(req)) tagLookup.cache.request.put(req);
         if (req.operation matches tagged Read .rop) begin
           // Stash the frame of the incoming address so that we can select the correct tags for the response.
