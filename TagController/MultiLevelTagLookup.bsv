@@ -141,10 +141,10 @@ module mkMultiLevelTagLookup #(
         tlvl = error("grouping factor " + integerToString(tableStructure[d]) +
           " must be between 2 and CheriDataWidth ("+ integerToString(valueof(CheriDataWidth)) +
           ") (for clearing tags algorithm)");
-      else if (mod(t.size * 8,tableStructure[d]) != 0)
+      else if (mod(t.size,tableStructure[d]) != 0)
         tlvl = error("table level " + integerToString(d) +
           ", invalid grouping factor " + integerToString(tableStructure[d]) +
-          " ("+integerToString(t.size * 8) +
+          " ("+integerToString(t.size) +
           " (bit size of the level) not divisible by "+integerToString(tableStructure[d])+")");
       else begin
         sz = div(t.size, tableStructure[d]);
