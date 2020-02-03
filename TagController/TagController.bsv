@@ -266,7 +266,7 @@ module mkTagController(TagControllerIfc);
       endmethod
       method Action put(CheriMemResponse r);
         MemReqType reqType = (r.masterID == mID) ? TagLookupReq : StdReq;
-        debug2("tagcontroller", $display("<time %0t TagController> response from memory: source=%x ", $time, reqType, fshow(r)));
+        debug2("tagcontroller", $display("<time %0t TagController> response from memory: ", $time, fshow(reqType), fshow(r)));
         if (reqType == TagLookupReq) begin
           tagLookup.memory.response.put(r);
           debug2("tagcontroller", $display("<time %0t TagController> tag response", $time));
