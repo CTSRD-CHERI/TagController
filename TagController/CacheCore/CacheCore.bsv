@@ -832,7 +832,7 @@ module mkCacheCore#(Bit#(16) cacheId,
             newReadReqReg.v = True; // Mark the readReqReg as serving an active reqeust.
             RequestRecord#(ways, keyBits, tagBits) reqRec = readReqReg.d;
             debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Trying memory response. ct.reqRec.d.outId:%x, memResp.id:%x, memRsps.notEmpty:%x, memRspIsWrite: %d",
-                                        $time, cacheId, getRespId(memResp), memRsps.notEmpty, memRspIsWrite));
+                                        $time, cacheId, reqRec.outId, getRespId(memResp), memRsps.notEmpty, memRspIsWrite));
             
             reqId = reqRec.inId;
             // Early indication that a slave response based on this master response can proceed.
