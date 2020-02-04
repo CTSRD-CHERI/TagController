@@ -82,7 +82,7 @@ typedef struct {
 // internal types
 ///////////////////////////////////////////////////////////////////////////////
 
-typedef enum {TagLookupReq, StdReq} MemReqType deriving (Bits, Eq);
+typedef enum {TagLookupReq, StdReq} MemReqType deriving (FShow, Bits, Eq);
 typedef 4 InFlight;
 
 // mkTagController module definition
