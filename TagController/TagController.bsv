@@ -124,11 +124,22 @@ module mkTagController(TagControllerIfc);
   // memory responses fifo
   FF#(CheriMemResponse, 32) mRsps <- mkUGFFDebug("TagController_mRsps");
 
+  // If we receive a multiflit write, we need to ensure we forward the two halves together.
+  // Store the first half of these transactions. When the second arrives, the first is sent
+  // and the second is stored in this register, which then gets priority on being sent next.
+  Reg#(Maybe#(CheriMemRequest)) halfWrite <- mkReg(Invalid);
+
+  Bool sendHalfWrite = halfWrite matches tagged Valid .req &&& getLastField(req) ? True : False;
+
+  Bool slvCanPut =
+    tagLookup.cache.request.canPut() && !tagLookup.memory.request.canGet() &&
+    mReqs.notFull() && tagOnlyReads.notFull() && !sendHalfWrite;
+
   // module rules
   /////////////////////////////////////////////////////////////////////////////
 
   // forwards tag lookup requests to the memory interface
-  rule forwardLookupReqs(tagLookup.memory.request.canGet() && mReqs.notFull());
+  rule forwardLookupReqs(tagLookup.memory.request.canGet() && mReqs.notFull() && !sendHalfWrite);
     debug2("tagcontroller",
       $display(
         "<time %0t TagController> Injecting request from tag lookup engine: ",
@@ -183,17 +194,6 @@ module mkTagController(TagControllerIfc);
       tagged Uncovered   : newResp.data.data = 0;
     endcase
   end
-
-  // If we receive a multiflit write, we need to ensure we forward the two halves together.
-  // Store the first half of these transactions. When the second arrives, the first is sent
-  // and the second is stored in this register, which then gets priority on being sent next.
-  Reg#(Maybe#(CheriMemRequest)) halfWrite <- mkReg(Invalid);
-
-  Bool sendHalfWrite = halfWrite matches tagged Valid .req &&& getLastField(req) ? True : False;
-
-  Bool slvCanPut =
-    tagLookup.cache.request.canPut() && !tagLookup.memory.request.canGet() &&
-    mReqs.notFull() && tagOnlyReads.notFull() && !sendHalfWrite;
 
   Bool slvCanGet = tagRsp.v || untrackedResponse;
 
