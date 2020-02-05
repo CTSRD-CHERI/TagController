@@ -75,7 +75,7 @@ endinterface
 
 typedef struct {
   Bool tagOnlyRead;
-  Bit#(2) bank;
+  Bit#(TLog#(TDiv#(64, CapBytes))) bank;
   CheriMasterID masterID;
   CheriTransactionID transactionID;
 } AddrFrame deriving(Bits, Eq, FShow);
@@ -248,7 +248,7 @@ module mkTagController(TagControllerIfc);
         if (getLastField(req)) tagLookup.cache.request.put(req);
         if (req.operation matches tagged Read .rop) begin
           // Stash the frame of the incoming address so that we can select the correct tags for the response.
-          addrFrame.insert(id, AddrFrame{tagOnlyRead: rop.tagOnlyRead, bank: truncateLSB({req.addr.lineNumber[1:0],req.addr.byteOffset}), masterID: req.masterID, transactionID: req.transactionID});
+          addrFrame.insert(id, AddrFrame{tagOnlyRead: rop.tagOnlyRead, bank: truncate(req.addr.lineNumber), masterID: req.masterID, transactionID: req.transactionID});
         end
       endmethod
     endinterface

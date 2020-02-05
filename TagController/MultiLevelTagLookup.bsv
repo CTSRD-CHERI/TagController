@@ -44,7 +44,7 @@ import Debug::*;
 // interface types
 ///////////////////////////////////////////////////////////////////////////////
 
-typedef Vector#(4,Bit#(CapsPerFlit)) LineTags;
+typedef Vector#(TDiv#(64, CapBytes),Bit#(CapsPerFlit)) LineTags;  //64-byte bursts supported
 
 typedef struct {
   ReqId id;
