@@ -762,7 +762,7 @@ module mkCacheCore#(Bit#(16) cacheId,
               newReadReqReg.d.outId = getRespId(memResp);
             end
             orderer.mastRsp(getRespId(memResp), False, getLastField(memResp));
-            //debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> received write memory response ", $time, cacheId, fshow(memResp)));
+            debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> received write memory response in Writeback case ", $time, cacheId, fshow(memResp)));
           end
         end
         Bool lineDirty = True;
@@ -926,7 +926,7 @@ module mkCacheCore#(Bit#(16) cacheId,
               newReadReqReg.d.outId = getRespId(memResp);
             end
             orderer.mastRsp(getRespId(memResp), uncachedResp, getLastField(memResp));
-            debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> received write memory response, id: %x", 
+            debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> received write memory response with no response record, id: %x", 
                                           $time, cacheId, getRespId(memResp)));
           end
         end
@@ -1057,7 +1057,7 @@ module mkCacheCore#(Bit#(16) cacheId,
               newReadReqReg.d.outId = getRespId(memResp);
             end
             orderer.mastRsp(getRespId(memResp), False, getLastField(memResp));
-            debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> received write memory response ", $time, cacheId, fshow(getRespId(memResp))));
+            debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> received write memory response in serve (no record) ", $time, cacheId, fshow(getRespId(memResp))));
           end
         end
         Bool doMemRequest = False;

@@ -33,6 +33,7 @@ import FIFOF :: *;
 import SpecialFIFOs :: *;
 import DReg :: *;
 import ConfigReg :: *;
+import BRAMCore :: * ;
 
 interface ReadIfc#(type addr, type data);
   method Action              put(addr a);
@@ -354,6 +355,23 @@ module mkMEMCoreBSC(MEM#(addr, data))
   endmethod
 endmodule: mkMEMCoreBSC
 
+module mkMEMCoreBluespecLib(MEM#(addr, data))
+  provisos(Bits#(addr, addr_sz),
+        Bounded#(addr),
+        Bits#(data, data_sz));
+  
+  BRAM_DUAL_PORT#(addr,data) bram <- mkBRAMCore2(valueOf(TExp#(addr_sz)), False); // BRAM
+  
+  interface ReadIfc read;
+    method Action put(addr a) = bram.a.put(False,a,?);
+    method data peek() = bram.a.read();
+    method ActionValue#(data) get();
+      return bram.a.read();
+    endmethod
+  endinterface
+  method Action write(addr a, data x) = bram.b.put(True, a, x);
+endmodule: mkMEMCoreBluespecLib
+
 
 //////////////////////////////////////////////
 // Wrapper for the verilog and bluespec implementations.
@@ -370,7 +388,7 @@ module mkMEMCore(MEM#(addr, data))
    Reset rst <- exposeCurrentReset;
    (*hide*)
 
-   let _ifc <- mkMEMCoreBSC;
+   let _ifc <- mkMEMCoreBluespecLib;
 
    return _ifc ;
 endmodule

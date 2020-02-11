@@ -71,9 +71,8 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,6
   let newRst <- mkReset(0, True, clk);
   TagControllerIfc tagCon <- mkTagController(reset_by newRst.new_rst);
   //Workaround: these are being enqueued while full in Piccolo. Made the buffer size larger (32 from 4)
-  AXI4_Shim#(id_, addr_, 64, 0, CapsPerFlit, 0, 0, CapsPerFlit) shimSlave  <- mkAXI4ShimUGSizedFIFOF32;
-  AXI4_Shim#(TAdd#(id_,1), addr_, 64, 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimUGSizedFIFOF32;
-  FIFO#(Bit#(0)) limiter <- mkFIFO1;
+  AXI4_Shim#(id_, addr_, 64, 0, CapsPerFlit, 0, 0, CapsPerFlit) shimSlave  <- mkAXI4ShimBypassFIFOF;//mkAXI4ShimFF;
+  AXI4_Shim#(TAdd#(id_,1), addr_, 64, 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimBypassFIFOF;
   let awreqff <- mkFIFOF;
   let addrOffset <- mkReg(0);
 
@@ -85,31 +84,28 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,6
   // Rules to feed the tag controller from the slave AXI interface
   // Ready if there is no read request or if the write request id is first.
   (* descending_urgency = "passCacheRead, passCacheWrite" *)
-  rule passCacheWrite(!shimSlave.master.ar.canPeek || ((shimSlave.master.ar.peek.arid-shimSlave.master.aw.peek.awid)<4));
+  rule passCacheWrite;
     let awreq = awreqff.first;
     let wreq <- get(shimSlave.master.w);
     if (wreq.wlast) begin
       addrOffset <= 0;
       awreqff.deq;
-      limiter.enq(?);
     end else begin
       addrOffset <= addrOffset + (1 << pack(awreq.awsize));
     end
     awreq.awaddr = awreq.awaddr + addrOffset;
     let mreq = axi2mem_req(Write(WriteReqFlit{aw: awreq, w: wreq}));
     tagCon.cache.request.put(mreq);
-    //printDbg(dbg, $format("TagController write request ", fshow(awreq), " - ", fshow(wreq)));
+    $display("TagController write request ", fshow(awreq), " - ", fshow(wreq));
   endrule
   // Ready if there is no write request or if the read request id is first.
-  rule passCacheRead(!shimSlave.master.aw.canPeek || ((shimSlave.master.aw.peek.awid-shimSlave.master.ar.peek.arid)<4));
+  rule passCacheRead;
     let ar <- get(shimSlave.master.ar);
     tagCon.cache.request.put(axi2mem_req(Read(ar)));
-    limiter.enq(?);
     //printDbg(dbg, $format("TagController read request ", fshow(ar)));
   endrule
   rule passCacheResponse;
     CheriMemResponse mr <- tagCon.cache.response.get();
-    if (getLastField(mr)) limiter.deq;
     AXI_Helpers::MemRsp#(id_) ar = mem2axi_rsp(mr);
     case (ar) matches
       tagged Write .w: shimSlave.master.b.put(w);
@@ -151,13 +147,15 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,6
     tagCon.memory.response.put(mr);
     //printDbg(dbg, $format("Memory read response ", fshow(rsp)));
   endrule
+  
+  let ug_slave <- toUnguarded_AXI4_Slave(shimSlave.slave);
+  let ug_master <- toUnguarded_AXI4_Master(shimMaster.master);
 
   method clear = action
     newRst.assertReset;
     shimSlave.clear;
     shimMaster.clear;
-    limiter.clear;
   endaction;
-  interface slave  = shimSlave.slave;
-  interface master = shimMaster.master;
+  interface slave  = ug_slave;
+  interface master = ug_master;
 endmodule

@@ -114,9 +114,9 @@ module mkCacheCorderer#(Bit#(16) cacheId)(CacheCorderer#(inFlight));
   FF#(ReqId,2)                           waitingSlaveReq <- mkUGFF;
   Reg#(TransRecord)                       slaveRespState <- mkConfigReg(defaultTransRecord);
   
-  // Twice as much capacity for master reqeusts so that there is space for write reqeusts that are finished, but waiting response.
-  Bag#(inFlight, ReqId, ReqRec)                 mastReqs <- mkSmallBag;
-  Bag#(inFlight, ReqId, Line)                  mastLines <- mkSmallBag;
+  // Extra capacity for master reqeusts to accomodate writeback reqeusts that are waiting response.
+  Bag#(TAdd#(inFlight,TMul#(4,inFlight)), ReqId, ReqRec) mastReqs <- mkSmallBag;
+  Bag#(TAdd#(inFlight,inFlight), ReqId, Line)           mastLines <- mkSmallBag;
   Reg#(TransRecord)                        mastRespState <- mkConfigReg(defaultTransRecord);
   FF#(CheriTransactionID, 16)                 mastReqIds <- mkUGFFFullOfUniqueInts(cacheId);
 
@@ -263,20 +263,20 @@ module mkCacheCorderer#(Bit#(16) cacheId)(CacheCorderer#(inFlight));
   method CheriTransactionID mastNextId() = mastReqIds.first();
   // Track metadata for master memory requests, but don't track writes for now.
   method Action mastReq(ReqId id, Bank first, Bank last, Line line, Bool expectResponse);
-    if (expectResponse) begin
+    //if (expectResponse) begin
       if (mastReqs.full) $display("<time %0t, cache %0d, CacheCorderer> Panic! Enquing mastReqs when full. ", $time, cacheId);
       ReqRec recReq = ReqRec{id: id, line: ?, first: first, last: last, idBeforeMe: ?};
       debug2("corderer", $display("<time %0t, cache %0d, CacheCorderer> Master request: ", $time, cacheId, fshow(recReq)));
       mastReqs.insert(id, recReq);
       mastLines.insert(id, line);
-    end
+    //end
     mastReqIds.deq();
   endmethod
   method Action mastRsp(ReqId id, Bool read, Bool last);
     VnD#(ReqRec) req = mastReqs.isMember(id);
     TransRecord state = mastRespState;
     Bank flit = state.next;
-    if (read) begin
+    //if (read) begin
       if (!req.v) $display("<time %0t, cache %0d, CacheCorderer> Panic! Memory response for unrecorded ID! ", $time, cacheId, fshow(id));
       if (!state.ongoing) begin
         state = defaultTransRecord;
@@ -294,7 +294,7 @@ module mkCacheCorderer#(Bit#(16) cacheId)(CacheCorderer#(inFlight));
       state.next = flit + 1;
       mastRespState <= state;
       debug2("corderer", $display("<time %0t, cache %0d, CacheCorderer> Master response: ", $time, cacheId, fshow(req), fshow(mastRespState), fshow(state)));
-    end
+    //end
     if (last) begin
       mastReqIds.enq(id.transactionID);
       //debug2("trace", $display("mastAvailableIdTable:%b", pack(mastAvailableIdTable[1])));
