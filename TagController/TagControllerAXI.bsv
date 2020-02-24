@@ -43,6 +43,7 @@ import TagController::*;
 import FIFO::*;
 import FIFOF::*;
 import Clocks :: *;
+import Debug::*;
 
 /******************************************************************************
  * mkTagControllerAXI
@@ -96,7 +97,7 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,6
     awreq.awaddr = awreq.awaddr + addrOffset;
     let mreq = axi2mem_req(Write(WriteReqFlit{aw: awreq, w: wreq}));
     tagCon.cache.request.put(mreq);
-    $display("TagController write request ", fshow(awreq), " - ", fshow(wreq));
+    debug2("tagcontroller", $display("TagController write request ", fshow(awreq), " - ", fshow(wreq)));
   endrule
   // Ready if there is no write request or if the read request id is first.
   rule passCacheRead;
