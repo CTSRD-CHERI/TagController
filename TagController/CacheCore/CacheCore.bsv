@@ -825,8 +825,8 @@ module mkCacheCore#(Bit#(16) cacheId,
         Bool readRespForWrite = False;
         
         if (memRsps.notEmpty) begin
-          debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> attempting memory response, id: %x, responseRecordValid: %d, memRsps.notEmpty: %d, readReqReg.d.outId==getRespId(memResp): %d", 
-                                  $time, cacheId, getRespId(memResp), responseRecordValid, memRsps.notEmpty, readReqReg.d.outId==getRespId(memResp)));
+          debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> attempting memory response, id: %x, registered_id: %x, responseRecordValid: %d, memRsps.notEmpty: %d, readReqReg.d.outId==getRespId(memResp): %d", 
+                                  $time, cacheId, getRespId(memResp), readReqReg.d.outId, responseRecordValid, memRsps.notEmpty, readReqReg.d.outId==getRespId(memResp)));
           if (responseRecordValid) begin // Only proceed with a read fill if we guessed the correct id in the lookup stage.
             
             newReadReqReg.v = True; // Mark the readReqReg as serving an active reqeust.
@@ -921,10 +921,8 @@ module mkCacheCore#(Bit#(16) cacheId,
               last = True;
               thisReqLast = True;
             end*/
-            if (!oneInFlight) begin
-              newReadReqReg.v = False;
-              newReadReqReg.d.outId = getRespId(memResp);
-            end
+            newReadReqReg.v = False;
+            newReadReqReg.d.outId = getRespId(memResp);
             orderer.mastRsp(getRespId(memResp), uncachedResp, getLastField(memResp));
             debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> received write memory response with no response record, id: %x", 
                                           $time, cacheId, getRespId(memResp)));
@@ -1052,10 +1050,8 @@ module mkCacheCore#(Bit#(16) cacheId,
         if (memRsps.notEmpty && !memRspHasResponseRecord) begin
           if (memRspIsWrite) begin
             memRsps.deq;
-            if (!oneInFlight) begin
-              newReadReqReg.v = False;
-              newReadReqReg.d.outId = getRespId(memResp);
-            end
+            newReadReqReg.v = False;
+            newReadReqReg.d.outId = getRespId(memResp);
             orderer.mastRsp(getRespId(memResp), False, getLastField(memResp));
             debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> received write memory response in serve (no record) ", $time, cacheId, fshow(getRespId(memResp))));
           end
@@ -1250,7 +1246,7 @@ module mkCacheCore#(Bit#(16) cacheId,
                 if (tagOnlyRead) cached = False;
               `endif
               // If it's a cached operation, align the access.
-              if (cached) begin 
+              if (cached) begin
                 memReq.addr = unpack(pack(CacheAddress{
                                           tag: addr.tag, 
                                           key: addr.key, 
@@ -1283,7 +1279,9 @@ module mkCacheCore#(Bit#(16) cacheId,
               end
             end
           endcase
-                    
+
+          // If we intend to issue a new memory request, but an existing memory request is outstanding (and we only support one in flight)...
+          if (doMemRequest && oneInFlight && readReqReg.v) dead = True;
           // If this is not the next request, kill the external request under two conditions...
           if (!exeThisReq && !isRead) dead = True;
           if (doMemRequest && !dead) begin
