@@ -911,18 +911,10 @@ module mkCacheCore#(Bit#(16) cacheId,
           end else if (memRspIsWrite && !memRspHasResponseRecord) begin
             memRsps.deq;
             Bool uncachedResp = False;
-            /*if (uncachedWriteId.v) begin
-              uncachedResp = True;
-              cacheResp = memResp;
-              reqId = uncachedWriteId.d;
-              if (!oneInFlight) readReqs.remove(memRspId);
-              // Line up with CacheNop response just to ensure correct behaviour.
-              forceResponse = True;
-              last = True;
-              thisReqLast = True;
-            end*/
-            newReadReqReg.v = False;
-            newReadReqReg.d.outId = getRespId(memResp);
+            if (!oneInFlight) begin
+                newReadReqReg.v = False;
+                newReadReqReg.d.outId = getRespId(memResp);
+            end
             orderer.mastRsp(getRespId(memResp), uncachedResp, getLastField(memResp));
             debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> received write memory response with no response record, id: %x", 
                                           $time, cacheId, getRespId(memResp)));
@@ -1050,8 +1042,10 @@ module mkCacheCore#(Bit#(16) cacheId,
         if (memRsps.notEmpty && !memRspHasResponseRecord) begin
           if (memRspIsWrite) begin
             memRsps.deq;
-            newReadReqReg.v = False;
-            newReadReqReg.d.outId = getRespId(memResp);
+            if (!oneInFlight) begin
+                newReadReqReg.v = False;
+                newReadReqReg.d.outId = getRespId(memResp);
+            end
             orderer.mastRsp(getRespId(memResp), False, getLastField(memResp));
             debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> received write memory response in serve (no record) ", $time, cacheId, fshow(getRespId(memResp))));
           end
@@ -1572,6 +1566,7 @@ module mkCacheCore#(Bit#(16) cacheId,
       if (!newReadReqReg.v && maybeNewReadReq.v) newReadReqReg = VnD{v: oneInFlight, d: maybeNewReadReq.d};
     end
     readReqReg <= newReadReqReg;
+    debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Writing readReqReg ", $time, cacheId, fshow(newReadReqReg)));
     
     // Save all the state-changing writes for the get method.
     resps <= ResponseToken{
