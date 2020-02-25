@@ -115,8 +115,9 @@ module mkCacheCorderer#(Bit#(16) cacheId)(CacheCorderer#(inFlight));
   Reg#(TransRecord)                       slaveRespState <- mkConfigReg(defaultTransRecord);
   
   // Extra capacity for master reqeusts to accomodate writeback reqeusts that are waiting response.
-  Bag#(TAdd#(inFlight,TMul#(4,inFlight)), ReqId, ReqRec) mastReqs <- mkSmallBag;
-  Bag#(TAdd#(inFlight,inFlight), ReqId, Line)           mastLines <- mkSmallBag;
+  Bag#(16, ReqId, ReqRec)                       mastReqs <- mkSmallBag;
+  //Bag#(TAdd#(inFlight,TMul#(4,inFlight)), ReqId, ReqRec) mastReqs <- mkSmallBag;
+  Bag#(16, ReqId, Line)                        mastLines <- mkSmallBag;
   Reg#(TransRecord)                        mastRespState <- mkConfigReg(defaultTransRecord);
   FF#(CheriTransactionID, 16)                 mastReqIds <- mkUGFFFullOfUniqueInts(cacheId);
 
