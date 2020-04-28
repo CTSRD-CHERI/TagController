@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 #-
 # Copyright (c) 2016 Alexandre Joannou
 # Copyright (c) 2019 Jonathan Woodruff
@@ -64,7 +64,7 @@ args = parser.parse_args()
 
 if args.verbose:
     def verboseprint(msg):
-        print msg
+        print(msg)
 else:
     verboseprint = lambda *a: None
 
@@ -95,16 +95,16 @@ class TableLvl():
 def table_lvl(lvl):
     mask = ~0 << int(log(args.addr_align,2))
     if lvl == 0:
-        size = args.covered_mem_size / args.cap_size
+        size = args.covered_mem_size // args.cap_size
         addr = args.top_addr-size
     else:
         t = table_lvl(lvl-1)
-        size = t.size / args.structure[lvl]
+        size = t.size // args.structure[lvl]
         addr = t.startAddr-size
     return TableLvl (addr&mask, size)
 
 if args.cap_size > 0:
-    lvls = map (table_lvl, range(0,len(args.structure)))
+    lvls = list( map (table_lvl, range(0,len(args.structure))))
 else:
     lvls = [TableLvl(args.top_addr,0)]
 
