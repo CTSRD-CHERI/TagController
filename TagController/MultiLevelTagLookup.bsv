@@ -388,8 +388,13 @@ module mkMultiLevelTagLookup #(
   // initialisation rule
   /////////////////////////////////////////////////////////////////////////////
   rule initialise (state == Init);
-//    `ifndef BLUESIM
-`ifndef RVFI_DII
+`ifdef BLUESIM
+`define NO_TAGTABLE_ZEROING
+`endif
+`ifdef RVFI_DII
+`define NO_TAGTABLE_ZEROING
+`endif
+`ifndef NO_TAGTABLE_ZEROING
       TableLvl t = tableDesc[rootLvl];
       // zero toplevel of tag table in memory
       if (zeroAddr < unpack(pack(t.startAddr) + fromInteger(t.size))) begin

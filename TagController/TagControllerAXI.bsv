@@ -148,7 +148,7 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,6
     tagCon.memory.response.put(mr);
     //printDbg(dbg, $format("Memory read response ", fshow(rsp)));
   endrule
-  
+
   let ug_slave <- toUnguarded_AXI4_Slave(shimSlave.slave);
   let ug_master <- toUnguarded_AXI4_Master(shimMaster.master);
 
