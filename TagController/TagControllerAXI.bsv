@@ -76,6 +76,14 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,6
   AXI4_Shim#(TAdd#(id_,1), addr_, 64, 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimBypassFIFOF;
   let awreqff <- mkFIFOF;
   let addrOffset <- mkReg(0);
+  Reg#(Bool) reset_done <- mkReg(False);
+
+  rule propagateReset(!reset_done);
+      newRst.assertReset;
+      shimSlave.clear;
+      shimMaster.clear;
+      reset_done <= True;
+  endrule
 
   rule getCacheAW;
     let awreq <- get(shimSlave.master.aw);
@@ -152,7 +160,7 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,6
   let ug_slave <- toUnguarded_AXI4_Slave(shimSlave.slave);
   let ug_master <- toUnguarded_AXI4_Master(shimMaster.master);
 
-  method clear = action
+  method clear if (reset_done) = action
     newRst.assertReset;
     shimSlave.clear;
     shimMaster.clear;

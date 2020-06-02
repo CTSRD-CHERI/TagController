@@ -86,7 +86,7 @@ typedef struct {
 typedef TMax#(TDiv#(CapWidth, CheriDataWidth), 1) FlitsPerCap;
 typedef TMax#(TDiv#(CheriDataWidth,CapWidth), 1) CapsPerFlit;
 typedef enum {TagLookupReq, StdReq} MemReqType deriving (FShow, Bits, Eq);
-typedef 4 InFlight;
+typedef 1 InFlight;
 
 // mkTagController module definition
 ///////////////////////////////////////////////////////////////////////////////
@@ -119,27 +119,23 @@ module mkTagController(TagControllerIfc);
   FF#(ReqId, InFlight)                 tagOnlyReads <- mkUGFF();
   // lookup response frame to access (for multi-flit transactions)
   Reg#(Bit#(3)) frame <- mkReg(0);
+  Reg#(CheriTransactionID)      nextId <- mkReg(0);
+  FF#(CheriMemRequest, 16) writeBuffer <- mkFF();
   // memory requests fifo
   FF#(CheriMemRequest, 2)   mReqs <- mkFF();
   // memory responses fifo
   FF#(CheriMemResponse, 32) mRsps <- mkUGFFDebug("TagController_mRsps");
 
-  // If we receive a multiflit write, we need to ensure we forward the two halves together.
-  // Store the first half of these transactions. When the second arrives, the first is sent
-  // and the second is stored in this register, which then gets priority on being sent next.
-  Reg#(Maybe#(CheriMemRequest)) halfWrite <- mkReg(Invalid);
-
-  Bool sendHalfWrite = halfWrite matches tagged Valid .req &&& getLastField(req) ? True : False;
-
   Bool slvCanPut =
     tagLookup.cache.request.canPut() && !tagLookup.memory.request.canGet() &&
-    mReqs.notFull() && tagOnlyReads.notFull() && !sendHalfWrite;
+    mReqs.notFull() && tagOnlyReads.notFull() && !addrFrame.full();
+  Wire#(Bool) slaveDidPut <- mkDWire(False);
 
   // module rules
   /////////////////////////////////////////////////////////////////////////////
 
   // forwards tag lookup requests to the memory interface
-  rule forwardLookupReqs(tagLookup.memory.request.canGet() && mReqs.notFull() && !sendHalfWrite);
+  rule forwardLookupReqs(tagLookup.memory.request.canGet() && mReqs.notFull());
     debug2("tagcontroller",
       $display(
         "<time %0t TagController> Injecting request from tag lookup engine: ",
@@ -153,6 +149,11 @@ module mkTagController(TagControllerIfc);
     CheriTagResponse tags <- tagLookup.cache.response.get();
     debug2("tagcontroller", $display("<time %0t TagController> Completed lookup response: ", $time, fshow(tags)));
     lookupRsp.insert(tags.id, tags);
+  endrule
+
+  rule drainWritebuffer(!slaveDidPut);
+      tagLookup.cache.request.put(writeBuffer.first);
+      writeBuffer.deq;
   endrule
 
   // helper functions / signals
@@ -205,12 +206,6 @@ module mkTagController(TagControllerIfc);
                                      $time, slvCanGet, tagRsp.v, untrackedResponse));
   endrule*/
 
-
-  rule sendSecondHalfWrite(mReqs.notFull() && sendHalfWrite);
-    mReqs.enq(halfWrite.Valid);
-    halfWrite <= Invalid;
-  endrule
-
   // module Slave interface
   /////////////////////////////////////////////////////////////////////////////
 
@@ -221,7 +216,6 @@ module mkTagController(TagControllerIfc);
       method Bool canPut() = slvCanPut;
       method Action put(CheriMemRequest req) if (slvCanPut);
         debug2("tagcontroller", $display("<time %0t TagController> New request: ", $time, fshow(req)));
-        // We only enqueue request to DRAM if this is not a tagOnlyRead
         if (req.operation matches tagged Write .wop &&& req.addr >= unpack(fromInteger(table_start_addr)) && req.addr < unpack(fromInteger(table_end_addr))) begin
           req.operation = tagged Write {
               uncached: wop.uncached,
@@ -234,18 +228,23 @@ module mkTagController(TagControllerIfc);
           };
         end
         ReqId id = getReqId(req);
+        // We only enqueue request to DRAM if this is not a tagOnlyRead
         Bool canDoEnq = True;
         if (req.operation matches tagged Read .rop &&& rop.tagOnlyRead) begin
           canDoEnq=False;
           tagOnlyReads.enq(id);
         end
-        if (req.operation matches tagged Write .wop &&& wop.length != 0) begin
-          if (halfWrite matches tagged Valid .firstHalf) mReqs.enq(firstHalf);
-          halfWrite <= Valid (req);
-        end else begin
-          if (canDoEnq) mReqs.enq(req);
+        if (canDoEnq) mReqs.enq(req);
+        if (req.operation matches tagged Write .wop) begin
+            CheriMemRequest tagReq = req;
+            tagReq.transactionID = nextId;
+            //tagReq.operation.last = True; Seems to happen to not be necessary...
+            writeBuffer.enq(tagReq);
+            nextId <= nextId + 1;
+        end else if (getLastField(req)) begin
+            tagLookup.cache.request.put(req);
+            slaveDidPut <= True;
         end
-        if (getLastField(req)) tagLookup.cache.request.put(req);
         if (req.operation matches tagged Read .rop) begin
           // Stash the frame of the incoming address so that we can select the correct tags for the response.
           addrFrame.insert(id, AddrFrame{tagOnlyRead: rop.tagOnlyRead, bank: truncate(req.addr.lineNumber), masterID: req.masterID, transactionID: req.transactionID});
