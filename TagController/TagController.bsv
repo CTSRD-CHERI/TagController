@@ -87,6 +87,7 @@ typedef TMax#(TDiv#(CapWidth, CheriDataWidth), 1) FlitsPerCap;
 typedef TMax#(TDiv#(CheriDataWidth,CapWidth), 1) CapsPerFlit;
 typedef enum {TagLookupReq, StdReq} MemReqType deriving (FShow, Bits, Eq);
 typedef 1 InFlight;
+typedef 8 MaxBurstLength;
 
 // mkTagController module definition
 ///////////////////////////////////////////////////////////////////////////////
@@ -119,41 +120,27 @@ module mkTagController(TagControllerIfc);
   FF#(ReqId, InFlight)                 tagOnlyReads <- mkUGFF();
   // lookup response frame to access (for multi-flit transactions)
   Reg#(Bit#(3)) frame <- mkReg(0);
-  Reg#(CheriTransactionID)      nextId <- mkReg(0);
-  FF#(CheriMemRequest, 16) writeBuffer <- mkFF();
+  Reg#(CheriTransactionID) nextId <- mkReg(0);
   // memory requests fifo
-  FF#(CheriMemRequest, 2)   mReqs <- mkFF();
+  FF#(CheriMemRequest, TMul#(MaxBurstLength, 2)) mReqs <- mkUGFF();
+  FF#(Bit#(0),InFlight) mReqBurst <- mkUGFF;
   // memory responses fifo
-  FF#(CheriMemResponse, 32) mRsps <- mkUGFFDebug("TagController_mRsps");
+  FF#(CheriMemResponse, TMul#(MaxBurstLength, InFlight)) mRsps <- mkUGFFDebug("TagController_mRsps");
 
+  // Forwarding requests from the tag cache takes priority unless we have an ongoing burst request being forwarded,
+  // or if there is not enough space for a full burst.
   Bool slvCanPut =
-    tagLookup.cache.request.canPut() && !tagLookup.memory.request.canGet() &&
-    mReqs.notFull() && tagOnlyReads.notFull() && !addrFrame.full();
-  Wire#(Bool) slaveDidPut <- mkDWire(False);
+    tagLookup.cache.request.canPut() &&
+    mReqs.notFull() && mReqBurst.notFull() && tagOnlyReads.notFull() && !addrFrame.full();
 
   // module rules
   /////////////////////////////////////////////////////////////////////////////
 
-  // forwards tag lookup requests to the memory interface
-  rule forwardLookupReqs(tagLookup.memory.request.canGet() && mReqs.notFull());
-    debug2("tagcontroller",
-      $display(
-        "<time %0t TagController> Injecting request from tag lookup engine: ",
-        $time, fshow(tagLookup.memory.request.peek())
-    ));
-    CheriMemRequest r <- tagLookup.memory.request.get();
-    mReqs.enq(r);
-  endrule
   // drain tag lookup responses out of the tag lookup engine
   rule getTagLookupResponse;
     CheriTagResponse tags <- tagLookup.cache.response.get();
     debug2("tagcontroller", $display("<time %0t TagController> Completed lookup response: ", $time, fshow(tags)));
     lookupRsp.insert(tags.id, tags);
-  endrule
-
-  rule drainWritebuffer(!slaveDidPut);
-      tagLookup.cache.request.put(writeBuffer.first);
-      writeBuffer.deq;
   endrule
 
   // helper functions / signals
@@ -198,6 +185,10 @@ module mkTagController(TagControllerIfc);
 
   Bool slvCanGet = tagRsp.v || untrackedResponse;
 
+  // Calculate peek of memory request interface.
+  CheriMemRequest memoryGetPeek = (mReqBurst.notEmpty) ? mReqs.first:tagLookup.memory.request.peek();
+  Bool memoryCanGet = mReqBurst.notEmpty || tagLookup.memory.request.canGet;
+
   // Comment in when debugging flow control.
 /*  rule debug;
     debug2("tagcontroller", $display("<time %0t TagController> slvCanPut:%x tagLookup.cache.request.canPut(1):%x tagLookup.memory.request.canGet(0):%x mReqs.notFull(1):%x",
@@ -234,21 +225,20 @@ module mkTagController(TagControllerIfc);
           canDoEnq=False;
           tagOnlyReads.enq(id);
         end
-        if (canDoEnq) mReqs.enq(req);
-        if (req.operation matches tagged Write .wop) begin
-            CheriMemRequest tagReq = req;
-            tagReq.transactionID = nextId;
-            //tagReq.operation.last = True; Seems to happen to not be necessary...
-            writeBuffer.enq(tagReq);
-            nextId <= nextId + 1;
-        end else if (getLastField(req)) begin
-            tagLookup.cache.request.put(req);
-            slaveDidPut <= True;
+        if (canDoEnq) begin
+            mReqs.enq(req);
+            if (getLastField(req)) mReqBurst.enq(?);
         end
         if (req.operation matches tagged Read .rop) begin
           // Stash the frame of the incoming address so that we can select the correct tags for the response.
           addrFrame.insert(id, AddrFrame{tagOnlyRead: rop.tagOnlyRead, bank: truncate(req.addr.lineNumber), masterID: req.masterID, transactionID: req.transactionID});
         end
+        if (req.operation matches tagged Write .wop) begin
+            CheriMemRequest tagReq = req;
+            req.transactionID = nextId;
+            nextId <= nextId + 1;
+        end
+        tagLookup.cache.request.put(req);
       endmethod
     endinterface
     // response side
@@ -282,7 +272,19 @@ module mkTagController(TagControllerIfc);
   /////////////////////////////////////////////////////////////////////////////
 
   interface Master memory;
-    interface request  = toCheckedGet(ff2fifof(mReqs));
+    interface CheckedGet request;
+      method Bool canGet() = memoryCanGet;
+      method CheriMemRequest peek() = memoryGetPeek;
+      method ActionValue#(CheriMemRequest) get() if (memoryCanGet);
+        if (!mReqBurst.notEmpty) let unused <- tagLookup.memory.request.get();
+        else begin
+          mReqs.deq();
+          if (getLastField(mReqs.first)) mReqBurst.deq();
+        end
+        debug2("tagcontroller", $display("<time %0t TagController> request to memory (ForwardingMemoryRequest:%d): ", $time, mReqBurst.notEmpty, " ", fshow(memoryGetPeek)));
+        return memoryGetPeek;
+      endmethod
+    endinterface
     interface CheckedPut response;
       method Bool canPut();
         return (mRsps.notFull() && tagLookup.memory.response.canPut());
