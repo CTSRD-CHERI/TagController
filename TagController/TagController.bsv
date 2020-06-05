@@ -75,7 +75,7 @@ endinterface
 
 typedef struct {
   Bool tagOnlyRead;
-  Bit#(TLog#(TDiv#(64, CapBytes))) bank;
+  CapOffsetInLine bank;
   CheriMasterID masterID;
   CheriTransactionID transactionID;
 } AddrFrame deriving(Bits, Eq, FShow);
@@ -88,6 +88,7 @@ typedef TMax#(TDiv#(CheriDataWidth,CapWidth), 1) CapsPerFlit;
 typedef enum {TagLookupReq, StdReq} MemReqType deriving (FShow, Bits, Eq);
 typedef 1 InFlight;
 typedef 8 MaxBurstLength;
+typedef Bit#(TLog#(MaxBurstLength)) Frame;
 
 // mkTagController module definition
 ///////////////////////////////////////////////////////////////////////////////
@@ -117,10 +118,11 @@ module mkTagController(TagControllerIfc);
   // Size of these structures must be >= number of outstandring requests from the L2.
   Bag#(InFlight, ReqId, CheriTagResponse) lookupRsp <- mkSmallBag;
   Bag#(InFlight, ReqId, AddrFrame)        addrFrame <- mkSmallBag;
+  FF#(ReqId,2)                             lookupId <- mkFF;
   FF#(ReqId, InFlight)                 tagOnlyReads <- mkUGFF();
   // lookup response frame to access (for multi-flit transactions)
-  Reg#(Bit#(3)) frame <- mkReg(0);
-  Reg#(CheriTransactionID) nextId <- mkReg(0);
+  Reg#(Frame) memoryResponseFrame <- mkReg(0);
+  Reg#(CheriTagWrite) tagWrite <- mkReg(unpack(0));
   // memory requests fifo
   FF#(CheriMemRequest, TMul#(MaxBurstLength, 2)) mReqs <- mkUGFF();
   FF#(Bit#(0),InFlight) mReqBurst <- mkUGFF;
@@ -140,7 +142,8 @@ module mkTagController(TagControllerIfc);
   rule getTagLookupResponse;
     CheriTagResponse tags <- tagLookup.cache.response.get();
     debug2("tagcontroller", $display("<time %0t TagController> Completed lookup response: ", $time, fshow(tags)));
-    lookupRsp.insert(tags.id, tags);
+    lookupRsp.insert(lookupId.first, tags);
+    lookupId.deq();
   endrule
 
   // helper functions / signals
@@ -159,13 +162,18 @@ module mkTagController(TagControllerIfc);
       AddrFrame thisAddrFrame = addrFrame.isMember(respID).d;
       // look at the tag lookup response
       case (tagRsp.d.tags) matches
-        tagged Covered .ts : tags = unpack(ts[thisAddrFrame.bank + truncate(frame >> valueOf(TLog#(FlitsPerCap)))]);
+        tagged Covered .ts : begin
+          CapOffsetInLine base = thisAddrFrame.bank + truncate(memoryResponseFrame >> valueOf(TLog#(FlitsPerCap)));
+          CapOffsetInLine i = 0;
+          for (i=0; i<fromInteger(valueOf(CapsPerFlit)); i=i+1)
+            tags[i] = ts[base + i];
+        end
         tagged Uncovered   : tags = unpack(0);
       endcase
       // update the new response with appropriate tags
       newResp.data.cap = tags;
     end else untrackedResponse = True; // Not used in this case!
-  end else if (tagOnlyReads.notEmpty() && frame==0) begin
+  end else if (tagOnlyReads.notEmpty() && memoryResponseFrame==0) begin
     respID = tagOnlyReads.first();
     tagRsp = lookupRsp.isMember(respID);
     newResp = CheriMemResponse{
@@ -206,6 +214,9 @@ module mkTagController(TagControllerIfc);
     interface CheckedPut request;
       method Bool canPut() = slvCanPut;
       method Action put(CheriMemRequest req) if (slvCanPut);
+        let lineAlignedAddr = pack(req.addr);
+        lineAlignedAddr[fromInteger(valueOf(TLog#(CpuLineSize)-1)):0] = 0;
+        CheriTagRequest tagReq = CheriTagRequest {addr: unpack(lineAlignedAddr), operation: tagged Read};
         debug2("tagcontroller", $display("<time %0t TagController> New request: ", $time, fshow(req)));
         if (req.operation matches tagged Write .wop &&& req.addr >= unpack(fromInteger(table_start_addr)) && req.addr < unpack(fromInteger(table_end_addr))) begin
           req.operation = tagged Write {
@@ -234,11 +245,29 @@ module mkTagController(TagControllerIfc);
           addrFrame.insert(id, AddrFrame{tagOnlyRead: rop.tagOnlyRead, bank: truncate(req.addr.lineNumber), masterID: req.masterID, transactionID: req.transactionID});
         end
         if (req.operation matches tagged Write .wop) begin
-            CheriMemRequest tagReq = req;
-            req.transactionID = nextId;
-            nextId <= nextId + 1;
+            CheriTagWrite newTagWrite = tagWrite;
+            CheriCapAddress capAddr = unpack(pack(req.addr));
+            Bit#(TLog#(SizeOf#(LineTags))) tagOffsetInLine = truncate(capAddr.capNumber);
+            Integer i = 0;
+            Integer bot = 0;
+            for (i = 0; i < valueOf(CapsPerFlit); i = i + 1) begin
+              CapOffsetInLine ibit = fromInteger(i);
+              newTagWrite.tags[tagOffsetInLine + ibit] = wop.data.cap[i];
+              Bit#(CapBytes) capBEs = pack(wop.byteEnable)[bot+valueOf(TMin#(CheriBusBytes, CapBytes))-1:bot];
+              newTagWrite.writeEnable[tagOffsetInLine + ibit] = (capBEs == 0) ? False:True;
+              bot = bot + valueOf(CapBytes);
+            end
+            if (getLastField(req)) begin
+              tagReq.operation = tagged Write newTagWrite;
+              tagLookup.cache.request.put(tagReq);
+              debug2("tagcontroller", $display("<time %0t TagController> Injected Write Lookup: ", $time, fshow(tagReq)));
+              newTagWrite = unpack(0);
+            end
+            tagWrite <= newTagWrite;
+        end else begin
+          tagLookup.cache.request.put(tagReq);
+          lookupId.enq(id);
         end
-        tagLookup.cache.request.put(req);
       endmethod
     endinterface
     // response side
@@ -258,10 +287,10 @@ module mkTagController(TagControllerIfc);
           if (rop.last || rop.tagOnlyRead) begin
             lookupRsp.remove(id); // dequeue the tag lookup response fifo
             addrFrame.remove(id);
-            frame <= 0;  // reset the current frame
+            memoryResponseFrame <= 0;  // reset the current frame
             if (rop.tagOnlyRead) tagOnlyReads.deq();
-          end else frame <= frame + 1; // for non last flits, increment frame
-        end else frame <= 0;
+          end else memoryResponseFrame <= memoryResponseFrame + 1; // for non last flits, increment frame
+        end else memoryResponseFrame <= 0;
         debug2("tagcontroller", $display("<time %0t TagController> Returning response: ", $time, fshow(resp)));
         return resp;
       endmethod

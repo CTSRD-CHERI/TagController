@@ -149,6 +149,9 @@ Bit#(4) logLineMinusOne = fromInteger(valueOf(TSub#(LogLine, 1)));
 typedef UInt#(TLog#(MaxNoOfFlits)) Flit;
 typedef Bit#(TSub#(AddrWidth,TAdd#(TLog#(CheriBusBytes),2))) Line;
 
+typedef 64 CpuLineSize; // Largest line that we can serve tag transactions on.
+typedef Bit#(TLog#(TDiv#(CpuLineSize, CapBytes))) CapOffsetInLine;
+
 // bytes per flit
 typedef enum {
     BYTE_1      = 0,  //    8 bits
@@ -271,8 +274,8 @@ typedef struct {
             Vector#(TDiv#(data_width,8), Bool) byteEnable;
             // A bit mask for each byte, enabling bit updates.
             Bit#(8) bitEnable;
-            // line data, 
-            // at the bottom so we can "truncate(pack())" this field 
+            // line data,
+            // at the bottom so we can "truncate(pack())" this field
             // to get the data without "matches".
             Data#(data_width) data;
             // Number of flits in burst

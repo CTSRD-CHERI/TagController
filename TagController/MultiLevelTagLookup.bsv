@@ -44,10 +44,21 @@ import Debug::*;
 // interface types
 ///////////////////////////////////////////////////////////////////////////////
 
-typedef Vector#(TDiv#(64, CapBytes),Bit#(CapsPerFlit)) LineTags;  //64-byte bursts supported
+typedef Vector#(TDiv#(CpuLineSize, CapBytes),Bool) LineTags;
+typedef struct {
+  LineTags tags;
+  LineTags writeEnable;
+} CheriTagWrite deriving (Bits,Eq,FShow);
 
 typedef struct {
-  ReqId id;
+  CheriPhyAddr addr;
+  union tagged {
+    void Read;
+    CheriTagWrite Write;
+  } operation;
+} CheriTagRequest deriving (Bits,Eq,FShow);
+
+typedef struct {
   union tagged {
     void Uncovered;
     LineTags Covered;
@@ -55,7 +66,7 @@ typedef struct {
 } CheriTagResponse deriving (Bits,Eq,FShow);
 
 interface TagLookupIfc;
-  interface Slave#(CheriMemRequest, CheriTagResponse) cache;
+  interface Slave#(CheriTagRequest, CheriTagResponse) cache;
   interface Master#(CheriMemRequest, CheriMemResponse) memory;
   `ifdef STATCOUNTERS
   interface Get#(ModuleEvents) cacheEvents;
@@ -181,8 +192,6 @@ module mkMultiLevelTagLookup #(
   Reg#(CheriPhyAddr) zeroAddr <- mkReg(tagTabStrtAddr);
   // transaction number for memory requests
   Reg#(CheriTransactionID) transNum <- mkReg(0);
-  // the request ID of the current lookup
-  Reg#(ReqId) reqeustId <- mkRegU;
   // pending read requests fifo covered or not
   FF#(Bool,1) readReqs <- mkLFF1();
   // lookup response fifo
@@ -205,8 +214,8 @@ module mkMultiLevelTagLookup #(
   // current lookup's depth
   Reg#(TDepth)    currentDepth     <- mkReg(unpack(0));
   Reg#(CapNumber) pendingCapNumber <- mkReg(unpack(0));
-  Reg#(Vector#(CapsPerFlit,Bool)) pendingTags <- mkReg(unpack(0));
-  Reg#(Vector#(CapsPerFlit,Bool)) pendingCapEnable <- mkReg(unpack(0));
+  Reg#(LineTags) pendingTags <- mkReg(unpack(0));
+  Reg#(LineTags) pendingCapEnable <- mkReg(unpack(0));
   Vector#(tdepth,Reg#(Bit#(CheriDataWidth))) oldTags <- replicateM(mkReg(unpack(0)));
 
   // module helper functions
@@ -639,7 +648,7 @@ module mkMultiLevelTagLookup #(
       method Bool canPut() = (state == Idle) && tagCacheReq.notFull;
       // tag request
       //////////////////////////////
-      method Action put(CheriMemRequest req) if (state == Idle);
+      method Action put(CheriTagRequest req) if (state == Idle);
         debug2("taglookup",
           $display(
             "<time %0t TagLookup> received request ",
@@ -650,35 +659,26 @@ module mkMultiLevelTagLookup #(
         // check whether we are in the covered region
         Bool doTagLookup = isCovered(req.addr);
         // initialise future pending tags
-        Vector#(CapsPerFlit,Bool) newPendingTags = unpack(0);
-        Vector#(CapsPerFlit,Bool) newPendingCapEnable = unpack(0);
+        LineTags newPendingTags = unpack(0);
+        LineTags newPendingCapEnable = unpack(0);
         // initialise a toplevel table lookup
         CheriCapAddress capAddr = unpack(pack(req.addr) - pack(coveredStrtAddr));
         CheriMemRequest mReq = craftTagReadReq (rootLvl,capAddr.capNumber);
         case (req.operation) matches
           // when it's a read
           //////////////////////////////
-          tagged Read .rop: begin
+          tagged Read: begin
             readReqs.enq(doTagLookup);
             nextState = ReadTag;
           end
           // when it's a write
           //////////////////////////////
           tagged Write .wop: begin
-            // what to write ?
-            // derive "cap enable"
-            Vector#(CapsPerFlit,Bool) capEnable;
-            Integer i = 0;
-            Integer bot = 0;
-            for (i = 0; i < valueOf(CapsPerFlit); i = i + 1) begin
-              Bit#(CapBytes) capBEs = pack(wop.byteEnable)[bot+valueOf(TMin#(CheriBusBytes, CapBytes))-1:bot];
-              capEnable[i] = (capBEs == 0) ? False:True;
-              bot = bot + valueOf(CapBytes);
-            end
             // get cap tags
-            Vector#(CapsPerFlit,Bool) capTags = wop.data.cap;
+            LineTags capTags = wop.tags;
+            LineTags capEnable = wop.writeEnable;
             // and cap tags with cap enable
-            Vector#(CapsPerFlit,Bool) andTags = zipWith(andBool,capTags,capEnable);
+            LineTags andTags = zipWith(andBool,capTags,capEnable);
             // update new pending tags
             newPendingTags = capTags;
             newPendingCapEnable = capEnable;
@@ -721,7 +721,6 @@ module mkMultiLevelTagLookup #(
             "<time %0t TagLookup> memory not covered",
             $time
         ));
-        reqeustId <= getReqId(req);
       endmethod
     endinterface
 
@@ -729,15 +728,15 @@ module mkMultiLevelTagLookup #(
     //////////////////////////////////////////////////////
     interface CheckedGet response;
       method Bool canGet() = !readReqs.first() || lookupRsp.notEmpty();
-      method CheriTagResponse peek() = CheriTagResponse{id: reqeustId, tags: (readReqs.first()) ?
+      method CheriTagResponse peek() = CheriTagResponse{tags: (readReqs.first()) ?
           tagged Covered lookupRsp.first():
           tagged Uncovered};
       method ActionValue#(CheriTagResponse) get() if (!readReqs.first() || lookupRsp.notEmpty());
         // put response together
-        CheriTagResponse tr = CheriTagResponse{id: reqeustId, tags: tagged Uncovered};
+        CheriTagResponse tr = CheriTagResponse{tags: tagged Uncovered};
         // in case of covered request, dequeue the lookup response
         if (readReqs.first()) begin
-          tr = CheriTagResponse{id: reqeustId, tags: tagged Covered lookupRsp.first()};
+          tr = CheriTagResponse{tags: tagged Covered lookupRsp.first()};
           lookupRsp.deq();
         end
         // dequeue the pending request
