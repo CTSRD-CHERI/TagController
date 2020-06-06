@@ -215,7 +215,8 @@ module mkTagController(TagControllerIfc);
       method Bool canPut() = slvCanPut;
       method Action put(CheriMemRequest req) if (slvCanPut);
         let lineAlignedAddr = pack(req.addr);
-        lineAlignedAddr[fromInteger(valueOf(TLog#(CpuLineSize)-1)):0] = 0;
+        Bit#(TLog#(CpuLineSize)) zero = 0;
+        lineAlignedAddr = {truncateLSB(lineAlignedAddr),zero};
         CheriTagRequest tagReq = CheriTagRequest {addr: unpack(lineAlignedAddr), operation: tagged Read};
         debug2("tagcontroller", $display("<time %0t TagController> New request: ", $time, fshow(req)));
         if (req.operation matches tagged Write .wop &&& req.addr >= unpack(fromInteger(table_start_addr)) && req.addr < unpack(fromInteger(table_end_addr))) begin
