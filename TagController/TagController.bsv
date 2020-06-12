@@ -86,9 +86,15 @@ typedef struct {
 typedef TMax#(TDiv#(CapWidth, CheriDataWidth), 1) FlitsPerCap;
 typedef TMax#(TDiv#(CheriDataWidth,CapWidth), 1) CapsPerFlit;
 typedef enum {TagLookupReq, StdReq} MemReqType deriving (FShow, Bits, Eq);
-typedef 1 InFlight;
+typedef 4 InFlight;
 typedef 8 MaxBurstLength;
 typedef Bit#(TLog#(MaxBurstLength)) Frame;
+typedef Bit#(8) ReqIdCount;
+
+typedef struct {
+  ReqId reqId;
+  ReqIdCount count; // Less than 256 outstanding transactions for one ID?  Surely?
+} TagReqId deriving(Bits, Eq, FShow);
 
 // mkTagController module definition
 ///////////////////////////////////////////////////////////////////////////////
@@ -116,10 +122,10 @@ module mkTagController(TagControllerIfc);
                             );
   // lookup responses fifo
   // Size of these structures must be >= number of outstandring requests from the L2.
-  Bag#(InFlight, ReqId, CheriTagResponse) lookupRsp <- mkSmallBag;
-  Bag#(InFlight, ReqId, AddrFrame)        addrFrame <- mkSmallBag;
-  FF#(ReqId,2)                             lookupId <- mkFF;
-  FF#(ReqId, InFlight)                 tagOnlyReads <- mkUGFF();
+  FFBag#(InFlight, ReqId, CheriTagResponse, InFlight) lookupRsp <- mkFFBag;
+  FFBag#(InFlight, ReqId, AddrFrame, InFlight)        addrFrame <- mkFFBag;
+  FF#(ReqId,2)                                         lookupId <- mkFF;
+  FF#(ReqId, InFlight)                             tagOnlyReads <- mkUGFF();
   // lookup response frame to access (for multi-flit transactions)
   Reg#(Frame) memoryResponseFrame <- mkReg(0);
   Reg#(CheriTagWrite) tagWrite <- mkReg(unpack(0));
@@ -142,7 +148,7 @@ module mkTagController(TagControllerIfc);
   rule getTagLookupResponse;
     CheriTagResponse tags <- tagLookup.cache.response.get();
     debug2("tagcontroller", $display("<time %0t TagController> Completed lookup response: ", $time, fshow(tags)));
-    lookupRsp.insert(lookupId.first, tags);
+    lookupRsp.enq(lookupId.first, tags);
     lookupId.deq();
   endrule
 
@@ -157,13 +163,13 @@ module mkTagController(TagControllerIfc);
   if (mRsps.notEmpty) begin
     if (mRsps.first().operation matches tagged Read .rop) begin
       respID = getRespId(mRsps.first);
-      tagRsp = lookupRsp.isMember(respID);
+      tagRsp = lookupRsp.first(respID);
       Vector#(CapsPerFlit,Bool) tags = replicate(True);
-      AddrFrame thisAddrFrame = addrFrame.isMember(respID).d;
+      VnD#(AddrFrame) thisAddrFrame = addrFrame.first(respID);
       // look at the tag lookup response
       case (tagRsp.d.tags) matches
         tagged Covered .ts : begin
-          CapOffsetInLine base = thisAddrFrame.bank + truncate(memoryResponseFrame >> valueOf(TLog#(FlitsPerCap)));
+          CapOffsetInLine base = thisAddrFrame.d.bank + truncate(memoryResponseFrame >> valueOf(TLog#(FlitsPerCap)));
           CapOffsetInLine i = 0;
           for (i=0; i<fromInteger(valueOf(CapsPerFlit)); i=i+1)
             tags[i] = ts[base + i];
@@ -172,10 +178,10 @@ module mkTagController(TagControllerIfc);
       endcase
       // update the new response with appropriate tags
       newResp.data.cap = tags;
-    end else untrackedResponse = True; // Not used in this case!
+    end else untrackedResponse = True;
   end else if (tagOnlyReads.notEmpty() && memoryResponseFrame==0) begin
     respID = tagOnlyReads.first();
-    tagRsp = lookupRsp.isMember(respID);
+    tagRsp = lookupRsp.first(respID);
     newResp = CheriMemResponse{
         masterID: respID.masterID,
         transactionID: respID.transactionID,
@@ -243,7 +249,7 @@ module mkTagController(TagControllerIfc);
         end
         if (req.operation matches tagged Read .rop) begin
           // Stash the frame of the incoming address so that we can select the correct tags for the response.
-          addrFrame.insert(id, AddrFrame{tagOnlyRead: rop.tagOnlyRead, bank: truncate(req.addr.lineNumber), masterID: req.masterID, transactionID: req.transactionID});
+          addrFrame.enq(id, AddrFrame{tagOnlyRead: rop.tagOnlyRead, bank: truncate(req.addr.lineNumber), masterID: req.masterID, transactionID: req.transactionID});
         end
         if (req.operation matches tagged Write .wop) begin
             CheriTagWrite newTagWrite = tagWrite;
@@ -283,11 +289,11 @@ module mkTagController(TagControllerIfc);
         // dequeue memory response fifo only when the response is not tagOnlyRead
         if (!tagsOnlyResponse) mRsps.deq();
         // in case of read response ...
-        if (resp.operation matches tagged Read .rop &&& !untrackedResponse) begin
+        if (resp.operation matches tagged Read .rop) begin
           // on the last flit,
           if (rop.last || rop.tagOnlyRead) begin
-            lookupRsp.remove(id); // dequeue the tag lookup response fifo
-            addrFrame.remove(id);
+            lookupRsp.deq(id); // dequeue the tag lookup response fifo
+            addrFrame.deq(id);
             memoryResponseFrame <= 0;  // reset the current frame
             if (rop.tagOnlyRead) tagOnlyReads.deq();
           end else memoryResponseFrame <= memoryResponseFrame + 1; // for non last flits, increment frame
