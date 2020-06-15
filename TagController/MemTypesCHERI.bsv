@@ -52,6 +52,11 @@ typedef 8 MaxTransactions;
 typedef 8 MaxNoOfFlits;
 typedef MaxNoOfFlits CheriBurstSize;
 
+`ifdef CapWidth
+  `define USECAP 1
+  typedef `CapWidth CapWidth;
+`else
+// XXX: Old compatibility definitions; migrate to CapWidth and delete
 `ifdef CAP
   `define USECAP 1
   typedef 256 CapWidth;
@@ -61,6 +66,7 @@ typedef MaxNoOfFlits CheriBurstSize;
 `elsif CAP64
   `define USECAP 1
   typedef 64 CapWidth;
+`endif
 `endif
 
 `ifdef USECAP
@@ -109,28 +115,24 @@ instance Ord#(PhyByteAddress#(a,b));
 endinstance
 
 // physical address for cheri
+`ifdef CheriBusBytes
+  typedef `CheriBusBytes CheriBusBytes;
+`else
+// XXX: Old compatibility definitions; migrate to CheriBusBytes and delete
 `ifdef MEM512
   typedef 64 CheriBusBytes;
-  BytesPerFlit cheriBusBytes = BYTE_64;
 `elsif MEM128
   typedef 16 CheriBusBytes;
-  BytesPerFlit cheriBusBytes = BYTE_16;
 `elsif MEM64
   typedef 8 CheriBusBytes;
-  BytesPerFlit cheriBusBytes = BYTE_8;
 `else
   typedef 32 CheriBusBytes;
-  BytesPerFlit cheriBusBytes = BYTE_32;
 `endif
-`ifdef CAP
-  BytesPerFlit capBytesPerFlit = BYTE_32;
-`elsif CAP128
-  BytesPerFlit capBytesPerFlit = BYTE_16;
-`elsif CAP64
-  BytesPerFlit capBytesPerFlit = BYTE_8;
 `endif
+BytesPerFlit cheriBusBytes = unpack(fromInteger(valueOf(TLog#(CheriBusBytes))));
 typedef 40 AddrWidth;
 `ifdef USECAP
+  BytesPerFlit capBytesPerFlit = unpack(fromInteger(valueOf(TLog#(CapBytes))));
   typedef TMax#(TDiv#(CheriBusBytes,CapBytes),1) CapsPerFlit;
   typedef Vector#(CapsPerFlit,Bool) CapTags;
   typedef Bit#(TSub#(AddrWidth,TLog#(CapBytes))) CapNumber;
@@ -367,14 +369,8 @@ typedef UInt#(2) Bank;
 
 `ifdef MULTI
   typedef 7 Indices; // Go conservative for multicore.
-`elsif MEM512
-  typedef 6 Indices;
-`elsif MEM128
-  typedef 8 Indices;
-`elsif MEM64
-  typedef 9 Indices;
-`else // MEM256 and default
-  typedef 7 Indices;
+`else
+  typedef TLog#(TDiv#(4096, CheriBusBytes)) Indices; // XXX: Don't hardcode?
 `endif
 Bit#(3) indicesMinus6 = fromInteger(valueOf(Indices) - 6);
 

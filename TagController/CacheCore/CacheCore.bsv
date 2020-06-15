@@ -59,12 +59,17 @@ import CacheCorderer::*;
   import StatCounters::*;
 `endif
 
+`ifdef CapWidth
+  `define USECAP 1
+`else
+// XXX: Old compatibility definitions; migrate to CapWidth and delete
 `ifdef CAP
   `define USECAP 1
 `elsif CAP128
   `define USECAP 1
 `elsif CAP64
   `define USECAP 1
+`endif
 `endif
  
 interface CacheCore#(numeric type ways,
@@ -221,15 +226,7 @@ module mkCacheCore#(Bit#(16) cacheId,
                    (CacheCore#(ways, keyBits, inFlight))
   provisos (
       Bits#(CheriPhyAddr, paddr_size),
-      `ifdef MEM512 // The line size is different for each bus width.
-        Log#(256, offset_size),
-      `elsif MEM128
-        Log#(64, offset_size),
-      `elsif MEM64
-        Log#(32, offset_size),
-      `else
-        Log#(128, offset_size),
-      `endif
+      Log#(TDiv#(TMul#(CheriBusBytes, 8), 2), offset_size), // The line size is different for each bus width. XXX: Don't hardcode?
       Add#(TAdd#(offset_size, keyBits), tagBits, paddr_size),
       Add#(smaller1, TLog#(ways), keyBits),
       Add#(smaller2, TLog#(ways), tagBits),
