@@ -65,19 +65,17 @@ typedef RspFlit#(id_, TMul#(CheriBusBytes, 8), 0)        DRAMRsp#(numeric type i
 // Request ranslators between AXI and CHERI Memory
 
 function CheriMemRequest axi2mem_req(MemReq#(id_, addr_) mr)
-  provisos (Add#(a__, TAdd#(id_, 1), SizeOf#(ReqId)), Add#(b__, addr_, 64));
+  provisos (Add#(a__, id_, CheriTransactionIDWidth), Add#(b__, addr_, 64));
   CheriMemRequest req = ?;
   case (mr) matches
     tagged Write .w: begin
-      Bit#(TAdd#(id_, 1)) labelled_id = {1'b0,w.aw.awid};
-      Bit#(SizeOf#(ReqId)) tmp_id = zeroExtend(labelled_id);
       //XXX horrible hack - from 40 bits restriction
       // support addresses up to 64 bits, only considers bottom 40 bits
       Bit#(64) tmp = zeroExtend(w.aw.awaddr);
       req = CheriMemRequest{
         addr: unpack(truncate(tmp)),
-        masterID: truncateLSB(tmp_id),
-        transactionID: truncate(tmp_id),
+        masterID: 0,
+        transactionID: zeroExtend(w.aw.awid),
         operation: tagged Write {
                         uncached: (w.aw.awcache < 4), // All options less than 4 look like uncached.
                         conditional: False, // For now?
@@ -92,15 +90,13 @@ function CheriMemRequest axi2mem_req(MemReq#(id_, addr_) mr)
       req.addr.byteOffset = 0;
     end
     tagged Read .r: begin
-      Bit#(TAdd#(id_, 1)) labelled_id = {1'b0,r.arid};
-      Bit#(SizeOf#(ReqId)) tmp_id = zeroExtend(labelled_id);
       //XXX horrible hack - from 40 bits restriction
       // support addresses up to 64 bits, only considers bottom 40 bits
       Bit#(64) tmp = zeroExtend(r.araddr);
       req = CheriMemRequest{
         addr: unpack(truncate(tmp)),
-        masterID: truncateLSB(tmp_id),
-        transactionID: truncate(tmp_id),
+        masterID: 0,
+        transactionID: zeroExtend(r.arid),
         operation: tagged Read {
                         uncached: (r.arcache < 4), // All options less than 4 look like uncached.
                         linked: False, // For now?
@@ -116,7 +112,7 @@ function CheriMemRequest axi2mem_req(MemReq#(id_, addr_) mr)
 endfunction
 
 function DRAMReq#(id_, addr_) mem2axi_req(CheriMemRequest mr)
-  provisos(Add#(a__, id_, SizeOf#(ReqId)), Add#(b__, addr_, 64));
+  provisos(Add#(a__, SizeOf#(ReqId), id_), Add#(b__, addr_, 64));
   DRAMReq#(id_, addr_) req = defaultValue;
   case (mr.operation) matches
     tagged Write .w: begin
@@ -126,7 +122,7 @@ function DRAMReq#(id_, addr_) mem2axi_req(CheriMemRequest mr)
       Bit#(TAdd#(1, TLog#(CheriBusBytes))) byteEnableOnes = pack(countOnes(pack(w.byteEnable)));
       req = tagged Write WriteReqFlit{
         aw: AXI4_AWFlit{
-          awid: truncate(pack(getReqId(mr))),
+          awid: zeroExtend(pack(getReqId(mr))),
           awaddr: truncate(tmp + zeroExtend(pack(countZerosLSB(pack(w.byteEnable))))),
           awlen: w.length,
           awsize: unpack(pack(countZerosLSB(byteEnableOnes))), // XXX: Must have power-of-two number of byte-enables set
@@ -151,7 +147,7 @@ function DRAMReq#(id_, addr_) mem2axi_req(CheriMemRequest mr)
       // support addresses up to 64 bits, only considers bottom 40 bits
       Bit#(64) tmp = zeroExtend(pack(mr.addr));
       req = tagged Read AXI4_ARFlit{
-        arid: truncate(pack(getReqId(mr))),
+        arid: zeroExtend(pack(getReqId(mr))),
         araddr: truncate(tmp),
         arlen: zeroExtend(pack(r.noOfFlits)),
         arsize: unpack(pack(r.bytesPerFlit)),
@@ -171,24 +167,24 @@ endfunction
 // Response ranslators between AXI and CHERI Memory
 
 function CheriMemResponse axi2mem_rsp(DRAMRsp#(id_) mr)
-  provisos (Add#(a__, id_, SizeOf#(ReqId)));
+  provisos (Add#(a__, SizeOf#(ReqId), id_));
   CheriMemResponse rsp = defaultValue;
   case (mr) matches
     tagged Write .w: begin
-      Bit#(SizeOf#(ReqId)) tmp_id = zeroExtend(w.bid);
+      ReqId req_id = unpack(truncate(w.bid));
       rsp = CheriMemResponse{
-        masterID: truncateLSB(tmp_id),
-        transactionID: truncate(tmp_id),
+        masterID: req_id.masterID,
+        transactionID: req_id.transactionID,
         error: NoError,
         data: ?,
         operation: tagged Write
       };
     end
     tagged Read .r: begin
-      Bit#(SizeOf#(ReqId)) tmp_id = zeroExtend(r.rid);
+      ReqId req_id = unpack(truncate(r.rid));
       rsp = CheriMemResponse{
-        masterID: truncateLSB(tmp_id),
-        transactionID: truncate(tmp_id),
+        masterID: req_id.masterID,
+        transactionID: req_id.transactionID,
         error: NoError,
         data: Data{cap: ?, data: r.rdata},
         operation: tagged Read {last: r.rlast, tagOnlyRead: False} // XXX support for CLoadTags lost by AXI conversion
@@ -199,21 +195,20 @@ function CheriMemResponse axi2mem_rsp(DRAMRsp#(id_) mr)
 endfunction
 
 function MemRsp#(id_) mem2axi_rsp(CheriMemResponse mr)
-  provisos (Add#(a__, id_, SizeOf#(ReqId)));
+  provisos (Add#(a__, id_, CheriTransactionIDWidth));
   MemRsp#(id_) rsp = defaultValue;
-  Bit#(SizeOf#(ReqId)) fat_id = pack(getRespId(mr));
-  Bit#(id_) slim_id = truncate(fat_id);
+  ReqId req_id = getRespId(mr);
   case (mr.operation) matches
     tagged Write: begin
       rsp = tagged Write AXI4_BFlit{
-        bid: slim_id,
+        bid: truncate(req_id.transactionID),
         bresp: OKAY,
         buser: ?
       };
     end
     tagged Read .r:
       rsp = tagged Read AXI4_RFlit{
-        rid: slim_id,
+        rid: truncate(req_id.transactionID),
         rdata: mr.data.data,
         rresp: OKAY,
         rlast: r.last,

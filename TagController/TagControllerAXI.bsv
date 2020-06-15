@@ -56,24 +56,24 @@ interface TagControllerAXI#(
   numeric type id_,
   numeric type addr_,
   numeric type data_);
-  interface AXI4_Master#(TAdd#(id_, 1), addr_, data_, 0, 0, 0, 0, 0) master;
+  interface AXI4_Master#(SizeOf#(ReqId), addr_, data_, 0, 0, 0, 0, 0) master;
   interface AXI4_Slave#(id_, addr_, data_, 0, CapsPerFlit, 0, 0, CapsPerFlit) slave;
   method Action clear;
 endinterface
 
 module mkTagControllerAXI(TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 8)))
-  provisos (Add#(a__, id_, SizeOf#(ReqId)), Add#(b__, TAdd#(id_, 1), SizeOf#(ReqId)), Add#(c__, addr_, 64));
+  provisos (Add#(a__, id_, CheriTransactionIDWidth), Add#(c__, addr_, 64));
   let tmp <- mkDbgTagControllerAXI(Invalid);
   return tmp;
 endmodule
 module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 8)))
-  provisos (Add#(a__, id_, SizeOf#(ReqId)), Add#(b__, TAdd#(id_, 1), SizeOf#(ReqId)), Add#(c__, addr_, 64));
+  provisos (Add#(a__, id_, CheriTransactionIDWidth), Add#(c__, addr_, 64));
   let    clk <- exposeCurrentClock;
   let newRst <- mkReset(0, True, clk);
   TagControllerIfc tagCon <- mkTagController(reset_by newRst.new_rst);
   //Workaround: these are being enqueued while full in Piccolo. Made the buffer size larger (32 from 4)
   AXI4_Shim#(id_, addr_, TMul#(CheriBusBytes, 8), 0, CapsPerFlit, 0, 0, CapsPerFlit) shimSlave  <- mkAXI4ShimBypassFIFOF;//mkAXI4ShimFF;
-  AXI4_Shim#(TAdd#(id_,1), addr_, TMul#(CheriBusBytes, 8), 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimBypassFIFOF;
+  AXI4_Shim#(SizeOf#(ReqId), addr_, TMul#(CheriBusBytes, 8), 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimBypassFIFOF;
   let awreqff <- mkFIFOF;
   let addrOffset <- mkReg(0);
   Reg#(Bool) reset_done <- mkReg(False);
@@ -127,7 +127,7 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,T
   let doneSendingAW <- mkReg(False);
   rule passMemoryRequest;
     CheriMemRequest mr <- tagCon.memory.request.get();
-    DRAMReq#(TAdd#(id_,1), addr_) ar = mem2axi_req(mr);
+    DRAMReq#(SizeOf#(ReqId), addr_) ar = mem2axi_req(mr);
     case (ar) matches
       tagged Write .w: begin
         let newDoneSendingAW = doneSendingAW;

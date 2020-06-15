@@ -31,7 +31,7 @@ import Vector::*;
 import FF::*;
 
 // Equal to Bluespec equivelant
-module mkUGFFFullOfUniqueInts#(Bit#(16) cacheId)(FF#(data, depth))
+module mkUGFFFullOfUniqueInts(FF#(data, depth))
 provisos(Log#(depth,logDepth),Bits#(data, data_width),Literal#(data),FShow#(data));
   Reg#(Vector#(depth,data))    rf  <- mkReg(genWith(fromInteger));
   RWire#(data)            enqData  <- mkRWire;

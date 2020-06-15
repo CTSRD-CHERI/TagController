@@ -103,7 +103,7 @@ interface CacheCorderer#(numeric type inFlight);
   method Bank nextMastRspFlit(ReqId id, Bool read);
 endinterface: CacheCorderer
 
-module mkCacheCorderer#(Bit#(16) cacheId)(CacheCorderer#(inFlight));
+module mkCacheCorderer#(Integer cacheId)(CacheCorderer#(inFlight));
   Bool oneInFlight = valueOf(inFlight) == 1;
   
   Reg#(TransRecord)                          lookupState <- mkConfigReg(defaultTransRecord);
@@ -119,7 +119,7 @@ module mkCacheCorderer#(Bit#(16) cacheId)(CacheCorderer#(inFlight));
   //Bag#(TAdd#(inFlight,TMul#(4,inFlight)), ReqId, ReqRec) mastReqs <- mkSmallBag;
   Bag#(16, ReqId, Line)                        mastLines <- mkSmallBag;
   Reg#(TransRecord)                        mastRespState <- mkConfigReg(defaultTransRecord);
-  FF#(CheriTransactionID, 16)                 mastReqIds <- mkUGFFFullOfUniqueInts(cacheId);
+  FF#(CheriTransactionID, 16)                 mastReqIds <- mkUGFFFullOfUniqueInts;
 
   function Bank currentLookupFlit(VnD#(ReqRec) req, ReqId id, Bank defaultFlit);
     Bank flit = defaultFlit;

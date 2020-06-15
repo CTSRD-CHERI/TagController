@@ -214,7 +214,7 @@ typedef Vector#(TDiv#(CheriDataWidth,8), Bool) ByteEnable;
  * it will return the 64-bit word requested in the bottom of the data field.
  */
 
-module mkCacheCore#(Bit#(16) cacheId,
+module mkCacheCore#(Integer cacheId,
                     WriteMissBehaviour writeBehaviour,
                     ResponseBehaviour responseBehaviour,
                     WhichCache whichCache,
@@ -785,7 +785,7 @@ module mkCacheCore#(Bit#(16) cacheId,
                       length: 0
                   };
           req.addr = unpack(pack(ct.addr));
-          req.masterID = truncate(cacheId);
+          req.masterID = fromInteger(cacheId);
           req.transactionID = orderer.mastNextId;
           debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Issuing external writeback memory request memReqs.notFull:%x, memReqFifoSpace:%x addr:%x ", 
                                          $time, cacheId, memReqs.notFull, memReqFifoSpace, req.addr, fshow(getReqId(req))));
@@ -1365,7 +1365,7 @@ module mkCacheCore#(Bit#(16) cacheId,
           end
           `ifdef STATCOUNTERS
             cacheCoreEvents = CacheCoreEvents {
-              id: cacheId,
+              id: fromInteger(cacheId),
               whichCache: whichCache,
               incHitWrite:   (firstFresh && !miss && isWrite),
               incMissWrite:  (firstFresh &&  miss && isWrite),
