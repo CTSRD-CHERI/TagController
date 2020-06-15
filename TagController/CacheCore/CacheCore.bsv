@@ -221,7 +221,9 @@ module mkCacheCore#(Bit#(16) cacheId,
                    (CacheCore#(ways, keyBits, inFlight))
   provisos (
       Bits#(CheriPhyAddr, paddr_size),
-      `ifdef MEM128 // The line size is different for each bus width.
+      `ifdef MEM512 // The line size is different for each bus width.
+        Log#(256, offset_size),
+      `elsif MEM128
         Log#(64, offset_size),
       `elsif MEM64
         Log#(32, offset_size),

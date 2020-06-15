@@ -56,11 +56,11 @@ instance DefaultValue#(RspFlit#(id_, data_, tag_));
   function defaultValue = tagged Write defaultValue;
 endinstance
 
-typedef ReqFlit#(id_, addr_, 64, CapsPerFlit) MemReq#(numeric type id_, numeric type addr_);
-typedef RspFlit#(id_, 64, CapsPerFlit)        MemRsp#(numeric type id_);
+typedef ReqFlit#(id_, addr_, TMul#(CheriBusBytes, 8), CapsPerFlit) MemReq#(numeric type id_, numeric type addr_);
+typedef RspFlit#(id_, TMul#(CheriBusBytes, 8), CapsPerFlit)        MemRsp#(numeric type id_);
 
-typedef ReqFlit#(id_, addr_, 64, 0) DRAMReq#(numeric type id_, numeric type addr_);
-typedef RspFlit#(id_, 64, 0)        DRAMRsp#(numeric type id_);
+typedef ReqFlit#(id_, addr_, TMul#(CheriBusBytes, 8), 0) DRAMReq#(numeric type id_, numeric type addr_);
+typedef RspFlit#(id_, TMul#(CheriBusBytes, 8), 0)        DRAMRsp#(numeric type id_);
 
 // Request ranslators between AXI and CHERI Memory
 
@@ -123,7 +123,7 @@ function DRAMReq#(id_, addr_) mem2axi_req(CheriMemRequest mr)
       //XXX horrible hack - from 40 bits restriction
       // support addresses up to 64 bits, only considers bottom 40 bits
       Bit#(64) tmp = zeroExtend(pack(mr.addr) & (~0 << pack(BYTE_8)));
-      Bit#(4) byteEnableOnes = pack(countOnes(pack(w.byteEnable)));
+      Bit#(TAdd#(1, TLog#(CheriBusBytes))) byteEnableOnes = pack(countOnes(pack(w.byteEnable)));
       req = tagged Write WriteReqFlit{
         aw: AXI4_AWFlit{
           awid: truncate(pack(getReqId(mr))),

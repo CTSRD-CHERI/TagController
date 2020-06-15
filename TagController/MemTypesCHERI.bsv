@@ -109,7 +109,10 @@ instance Ord#(PhyByteAddress#(a,b));
 endinstance
 
 // physical address for cheri
-`ifdef MEM128
+`ifdef MEM512
+  typedef 64 CheriBusBytes;
+  BytesPerFlit cheriBusBytes = BYTE_64;
+`elsif MEM128
   typedef 16 CheriBusBytes;
   BytesPerFlit cheriBusBytes = BYTE_16;
 `elsif MEM64
@@ -347,8 +350,8 @@ instance FShow#(MemoryRequest#(a,b,c,d))
     endfunction
 endinstance
 
-typedef Bit#(1) CheriMasterID;
-typedef Bit#(5) CheriTransactionID;
+typedef Bit#(8) CheriMasterID;
+typedef Bit#(8) CheriTransactionID;
 
 typedef Data#(CheriDataWidth) CheriData;
 typedef MemoryRequest#(CheriPhyAddr,CheriMasterID,CheriTransactionID,CheriDataWidth) CheriMemRequest;
@@ -364,6 +367,8 @@ typedef UInt#(2) Bank;
 
 `ifdef MULTI
   typedef 7 Indices; // Go conservative for multicore.
+`elsif MEM512
+  typedef 6 Indices;
 `elsif MEM128
   typedef 8 Indices;
 `elsif MEM64

@@ -170,9 +170,8 @@ module mkTagController(TagControllerIfc);
       case (tagRsp.d.tags) matches
         tagged Covered .ts : begin
           CapOffsetInLine base = thisAddrFrame.d.bank + truncate(memoryResponseFrame >> valueOf(TLog#(FlitsPerCap)));
-          CapOffsetInLine i = 0;
-          for (i=0; i<fromInteger(valueOf(CapsPerFlit)); i=i+1)
-            tags[i] = ts[base + i];
+          for (Integer i = 0; i < valueOf(CapsPerFlit); i = i + 1)
+            tags[i] = ts[base + fromInteger(i)];
         end
         tagged Uncovered   : tags = unpack(0);
       endcase
