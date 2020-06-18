@@ -157,14 +157,11 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,T
     //printDbg(dbg, $format("Memory read response ", fshow(rsp)));
   endrule
 
-  let ug_slave <- toUnguarded_AXI4_Slave(shimSlave.slave);
-  let ug_master <- toUnguarded_AXI4_Master(shimMaster.master);
-
   method clear if (reset_done) = action
     newRst.assertReset;
     shimSlave.clear;
     shimMaster.clear;
   endaction;
-  interface slave  = ug_slave;
-  interface master = ug_master;
+  interface slave  = shimSlave.slave;
+  interface master = shimMaster.master;
 endmodule
