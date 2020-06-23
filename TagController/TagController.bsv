@@ -83,7 +83,7 @@ typedef struct {
 // internal types
 ///////////////////////////////////////////////////////////////////////////////
 
-typedef TMax#(TDiv#(CapWidth, CheriDataWidth), 1) FlitsPerCap;
+typedef TLog#(TDiv#(CapWidth, CheriDataWidth)) LogFlitsPerCap;
 typedef TMax#(TDiv#(CheriDataWidth,CapWidth), 1) CapsPerFlit;
 typedef enum {TagLookupReq, StdReq} MemReqType deriving (FShow, Bits, Eq);
 typedef 4 InFlight;
@@ -169,7 +169,7 @@ module mkTagController(TagControllerIfc);
       // look at the tag lookup response
       case (tagRsp.d.tags) matches
         tagged Covered .ts : begin
-          CapOffsetInLine base = thisAddrFrame.d.bank + truncate(memoryResponseFrame >> valueOf(TLog#(FlitsPerCap)));
+          CapOffsetInLine base = thisAddrFrame.d.bank + truncate(memoryResponseFrame >> valueOf(LogFlitsPerCap));
           for (Integer i = 0; i < valueOf(CapsPerFlit); i = i + 1)
             tags[i] = ts[base + fromInteger(i)];
         end
@@ -248,7 +248,8 @@ module mkTagController(TagControllerIfc);
         end
         if (req.operation matches tagged Read .rop) begin
           // Stash the frame of the incoming address so that we can select the correct tags for the response.
-          addrFrame.enq(id, AddrFrame{tagOnlyRead: rop.tagOnlyRead, bank: truncate(req.addr.lineNumber), masterID: req.masterID, transactionID: req.transactionID});
+          CheriCapAddress capAddr = unpack(pack(req.addr));
+          addrFrame.enq(id, AddrFrame{tagOnlyRead: rop.tagOnlyRead, bank: truncate(capAddr.capNumber), masterID: req.masterID, transactionID: req.transactionID});
         end
         if (req.operation matches tagged Write .wop) begin
             CheriTagWrite newTagWrite = tagWrite;
