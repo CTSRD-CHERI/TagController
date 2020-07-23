@@ -59,6 +59,8 @@ interface TagControllerAXI#(
   interface AXI4_Master#(TAdd#(id_, 1), addr_, data_, 0, 0, 0, 0, 0) master;
   interface AXI4_Slave#(id_, addr_, data_, 0, CapsPerFlit, 0, 0, CapsPerFlit) slave;
   method Action clear;
+  interface Source#(void) readCount;
+  interface Source#(void) writeCount;
 endinterface
 
 module mkTagControllerAXI(TagControllerAXI#(id_, addr_,64))
@@ -77,6 +79,10 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,6
   let awreqff <- mkFIFOF;
   let addrOffset <- mkReg(0);
   Reg#(Bool) reset_done <- mkReg(False);
+
+  // For counting transactions
+  FIFOF#(void) readCountF <- mkUGFIFOF;
+  FIFOF#(void) writeCountF <- mkUGFIFOF;
 
   rule propagateReset(!reset_done);
       newRst.assertReset;
@@ -134,12 +140,16 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,6
         if (!doneSendingAW) begin
           shimMaster.slave.aw.put(w.aw);
           newDoneSendingAW = True;
+          writeCountF.enq(?);
         end
         shimMaster.slave.w.put(w.w);
         if (w.w.wlast) newDoneSendingAW = False;
         doneSendingAW <= newDoneSendingAW;
       end
-      tagged Read .r: shimMaster.slave.ar.put(r);
+      tagged Read .r: begin
+         shimMaster.slave.ar.put(r);
+         readCountF.enq(?);
+      end
     endcase
     //printDbg(dbg, $format("Memory request ", fshow(ar)));
   endrule
@@ -167,4 +177,7 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,6
   endaction;
   interface slave  = ug_slave;
   interface master = ug_master;
+  // Counting interfaces
+  interface readCount = toSource(readCountF);
+  interface writeCount = toSource(writeCountF);
 endmodule
