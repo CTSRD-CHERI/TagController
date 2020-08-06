@@ -71,6 +71,9 @@ interface TagLookupIfc;
   `ifdef STATCOUNTERS
   interface Get#(ModuleEvents) cacheEvents;
   `endif
+  `ifdef PERFORMANCE_MONITORING
+  method EventsCacheCore events;
+  `endif
 endinterface
 
 // internal types
@@ -768,6 +771,9 @@ module mkMultiLevelTagLookup #(
   interface Get cacheEvents;
     method ActionValue#(ModuleEvents) get () = tagCache.cacheEvents.get();
   endinterface
+  `endif
+  `ifdef PERFORMANCE_MONITORING
+  method events = tagCache.events;
   `endif
 
 endmodule

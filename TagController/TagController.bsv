@@ -47,6 +47,10 @@ import TagTableStructure::*;
 `ifdef STATCOUNTERS
 import StatCounters::*;
 `endif
+`ifdef PERFORMANCE_MONITORING
+import SpecialWires::*;
+import PerformanceMonitor::*;
+`endif
 //import TagLookup::*;
 import MultiLevelTagLookup::*;
 
@@ -70,6 +74,9 @@ interface TagControllerIfc;
   interface Master#(CheriMemRequest, CheriMemResponse) memory;
   `ifdef STATCOUNTERS
   interface Get#(ModuleEvents) cacheEvents;
+  `endif
+  `ifdef PERFORMANCE_MONITORING
+  method Vector#(17, Bit#(1)) events;
   `endif
 endinterface
 
@@ -95,6 +102,29 @@ typedef struct {
   ReqId reqId;
   ReqIdCount count; // Less than 256 outstanding transactions for one ID?  Surely?
 } TagReqId deriving(Bits, Eq, FShow);
+
+`ifdef PERFORMANCE_MONITORING
+typedef struct {
+   Bool evt_READ_REQ_MASTER;
+   Bool evt_WRITE_REQ_MASTER;
+   Bool evt_WRITE_REQ_FLIT_MASTER;
+   Bool evt_READ_RSP_MASTER;
+   Bool evt_READ_RSP_FLIT_MASTER;
+   Bool evt_WRITE_RSP_MASTER;
+   Bool evt_READ_REQ_SLAVE;
+   Bool evt_WRITE_REQ_SLAVE;
+   Bool evt_WRITE_REQ_FLIT_SLAVE;
+   Bool evt_READ_RSP_SLAVE;
+   Bool evt_READ_RSP_FLIT_SLAVE;
+   Bool evt_WRITE_RSP_SLAVE;
+} EventsTagController deriving (Bits, FShow);
+
+instance BitVectorable #(EventsTagController, 1, n) provisos (Bits #(EventsTagController, n));
+   function Vector #(n, Bit #(1)) to_vector (EventsTagController e);
+      return reverse (unpack (pack (e)));
+   endfunction
+endinstance
+`endif
 
 // mkTagController module definition
 ///////////////////////////////////////////////////////////////////////////////
@@ -135,6 +165,10 @@ module mkTagController(TagControllerIfc);
   // memory responses fifo
   FF#(CheriMemResponse, TMul#(MaxBurstLength, InFlight)) mRsps <- mkUGFFDebug("TagController_mRsps");
 
+  `ifdef PERFORMANCE_MONITORING
+    Array #(Wire #(EventsTagController)) aw_events <- mkDWireOR (4, unpack (0));
+  `endif
+  
   // Forwarding requests from the tag cache takes priority unless we have an ongoing burst request being forwarded,
   // or if there is not enough space for a full burst.
   Bool slvCanPut =
@@ -275,6 +309,14 @@ module mkTagController(TagControllerIfc);
           tagLookup.cache.request.put(tagReq);
           lookupId.enq(id);
         end
+        `ifdef PERFORMANCE_MONITORING
+          let op = req.operation;
+          EventsTagController events = unpack (0);
+          events.evt_READ_REQ_MASTER = op matches tagged Read .a__ ? True : False;
+          events.evt_WRITE_REQ_MASTER = op matches tagged Write .w &&& w.last ? True : False;
+          events.evt_WRITE_REQ_FLIT_MASTER = op matches tagged Write .a__ ? True : False;
+          aw_events[0] <= events;
+        `endif
       endmethod
     endinterface
     // response side
@@ -299,6 +341,14 @@ module mkTagController(TagControllerIfc);
           end else memoryResponseFrame <= memoryResponseFrame + 1; // for non last flits, increment frame
         end else memoryResponseFrame <= 0;
         debug2("tagcontroller", $display("<time %0t TagController> Returning response: ", $time, fshow(resp)));
+        `ifdef PERFORMANCE_MONITORING
+          let op = resp.operation;
+          EventsTagController events = unpack (0);
+          events.evt_READ_RSP_MASTER = op matches tagged Read .a__ ? True : False;
+          events.evt_READ_RSP_FLIT_MASTER = op matches tagged Read .rd &&& rd.last ? True : False;
+          events.evt_WRITE_RSP_MASTER = op matches tagged Write ? True : False;
+          aw_events[1] <= events;
+        `endif
         return resp;
       endmethod
     endinterface
@@ -318,6 +368,14 @@ module mkTagController(TagControllerIfc);
           if (getLastField(mReqs.first)) mReqBurst.deq();
         end
         debug2("tagcontroller", $display("<time %0t TagController> request to memory (ForwardingMemoryRequest:%d): ", $time, mReqBurst.notEmpty, " ", fshow(memoryGetPeek)));
+        `ifdef PERFORMANCE_MONITORING
+          let op = memoryGetPeek.operation;
+          EventsTagController events = unpack (0);
+          events.evt_READ_REQ_SLAVE = op matches tagged Read .a__ ? True : False;
+          events.evt_WRITE_REQ_SLAVE = op matches tagged Write .w &&& w.last ? True : False;
+          events.evt_WRITE_REQ_FLIT_SLAVE = op matches tagged Write .a__ ? True : False;
+          aw_events[2] <= events;
+        `endif
         return memoryGetPeek;
       endmethod
     endinterface
@@ -335,6 +393,14 @@ module mkTagController(TagControllerIfc);
           mRsps.enq(r);
           debug2("tagcontroller", $display("<time %0t TagController> memory response", $time));
         end
+        `ifdef PERFORMANCE_MONITORING
+          let op = r.operation;
+          EventsTagController events = unpack (0);
+          events.evt_READ_RSP_SLAVE = op matches tagged Read .a__ ? True : False;
+          events.evt_READ_RSP_FLIT_SLAVE = op matches tagged Read .rd &&& rd.last ? True : False;
+          events.evt_WRITE_RSP_SLAVE = op matches tagged Write ? True : False;
+          aw_events[3] <= events;
+        `endif
       endmethod
     endinterface
   endinterface
@@ -346,6 +412,9 @@ module mkTagController(TagControllerIfc);
   interface Get cacheEvents;
     method ActionValue#(ModuleEvents) get () = tagLookup.cacheEvents.get();
   endinterface
+  `endif
+  `ifdef PERFORMANCE_MONITORING
+  method events = append(to_vector(tagLookup.events), to_vector(aw_events[0]));
   `endif
 
 endmodule

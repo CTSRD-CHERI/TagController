@@ -58,6 +58,9 @@ import CacheCorderer::*;
   import GetPut::*;
   import StatCounters::*;
 `endif
+`ifdef PERFORMANCE_MONITORING
+import PerformanceMonitor::*;
+`endif
 
 `ifdef CapWidth
   `define USECAP 1
@@ -84,6 +87,9 @@ interface CacheCore#(numeric type ways,
   //interface Master#(CheriMemRequest, CheriMemResponse) memory;
   `ifdef STATCOUNTERS
   interface Get#(ModuleEvents) cacheEvents;
+  `endif
+  `ifdef PERFORMANCE_MONITORING
+  method EventsCacheCore events;
   `endif
 endinterface: CacheCore
 
@@ -206,6 +212,21 @@ typedef struct {
 
 typedef Vector#(TDiv#(CheriDataWidth,8), Bool) ByteEnable;
 
+`ifdef PERFORMANCE_MONITORING
+typedef struct {
+   Bool evt_WRITE;
+   Bool evt_WRITE_MISS;
+   Bool evt_READ;
+   Bool evt_READ_MISS;
+   Bool evt_EVICT;
+} EventsCacheCore deriving (Bits, FShow);
+
+instance BitVectorable #(EventsCacheCore, 1, n) provisos (Bits #(EventsCacheCore, n));
+   function Vector #(n, Bit #(1)) to_vector (EventsCacheCore e);
+      return reverse (unpack (pack (e)));
+   endfunction
+endinstance
+`endif
 /*
  * The CacheCore module is a generic cache engine that is parameterisable
  * by number of sets, number of ways, number of outstanding request,
@@ -300,6 +321,10 @@ module mkCacheCore#(Integer cacheId,
   `ifdef STATCOUNTERS
     Wire#(CacheCoreEvents)  cacheCoreEventsWire <- mkDWire(defaultValue);
     Reg#(ReqId) lastRespId <- mkReg(unpack(~0));
+  `endif
+  
+  `ifdef PERFORMANCE_MONITORING
+    Wire#(EventsCacheCore) eventsWire <- mkDWire(unpack(0));
   `endif
   
   Bool writeThrough = writeBehaviour==WriteThrough;
@@ -748,6 +773,9 @@ module mkCacheCore#(Integer cacheId,
     `ifdef STATCOUNTERS
       CacheCoreEvents cacheCoreEvents = defaultValue;
     `endif
+    `ifdef PERFORMANCE_MONITORING
+      EventsCacheCore events = unpack (0);
+    `endif
     
     VnD#(RequestRecord#(ways, keyBits, tagBits)) newReadReqReg = readReqReg;
     
@@ -802,6 +830,9 @@ module mkCacheCore#(Integer cacheId,
           `endif
           `ifdef STATCOUNTERS
             if (ct.addr.bank==0) cacheCoreEvents.incEvict = True; // trace a writeback once per line.
+          `endif
+          `ifdef PERFORMANCE_MONITORING
+            if (ct.addr.bank==0) events.evt_EVICT = True;
           `endif
         end
       end
@@ -1382,6 +1413,12 @@ module mkCacheCore#(Integer cacheId,
               `endif
             };
           `endif
+          `ifdef PERFORMANCE_MONITORING
+            events.evt_WRITE = firstFresh && isWrite;
+            events.evt_WRITE_MISS = firstFresh && isWrite && miss;
+            events.evt_READ = firstFresh && isRead;
+            events.evt_READ_MISS = firstFresh && isRead && miss;
+          `endif
           
           if (cachedResponse) begin
             //Return cached data.
@@ -1508,6 +1545,9 @@ module mkCacheCore#(Integer cacheId,
 
     `ifdef STATCOUNTERS
       cacheCoreEventsWire <= cacheCoreEvents;
+    `endif
+    `ifdef PERFORMANCE_MONITORING
+      eventsWire <= events;
     `endif
     
     Bool needInvWriteback = False;
@@ -1712,5 +1752,8 @@ module mkCacheCore#(Integer cacheId,
           return tagged CacheCore_E cacheCoreEventsWire;
       endmethod
   endinterface
+  `endif
+  `ifdef PERFORMANCE_MONITORING
+  method events = eventsWire;
   `endif
 endmodule

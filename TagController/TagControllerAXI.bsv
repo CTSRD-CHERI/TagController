@@ -44,6 +44,9 @@ import FIFO::*;
 import FIFOF::*;
 import Clocks :: *;
 import Debug::*;
+`ifdef PERFORMANCE_MONITORING
+import Vector::*;
+`endif
 
 /******************************************************************************
  * mkTagControllerAXI
@@ -59,6 +62,9 @@ interface TagControllerAXI#(
   interface AXI4_Master#(SizeOf#(ReqId), addr_, data_, 0, 0, 0, 0, 0) master;
   interface AXI4_Slave#(id_, addr_, data_, 0, CapsPerFlit, 0, 0, CapsPerFlit) slave;
   method Action clear;
+`ifdef PERFORMANCE_MONITORING
+  method Vector#(17, Bit#(1)) events;
+`endif
 endinterface
 
 module mkTagControllerAXI(TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 8)))
@@ -164,4 +170,8 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,T
   endaction;
   interface slave  = shimSlave.slave;
   interface master = shimMaster.master;
+
+`ifdef PERFORMANCE_MONITORING
+  method events = tagCon.events;
+`endif
 endmodule
