@@ -55,11 +55,12 @@ import Bag::*;
 import VnD::*;
 import CacheCorderer::*;
 `ifdef STATCOUNTERS
+`define MONITOR_EVENTS
   import GetPut::*;
   import StatCounters::*;
-`endif
-`ifdef PERFORMANCE_MONITORING
-import PerformanceMonitor::*;
+`elsif PERFORMANCE_MONITORING
+`define MONITOR_EVENTS
+  import PerformanceMonitor::*;
 `endif
 
 `ifdef CapWidth
@@ -87,8 +88,7 @@ interface CacheCore#(numeric type ways,
   //interface Master#(CheriMemRequest, CheriMemResponse) memory;
   `ifdef STATCOUNTERS
   interface Get#(ModuleEvents) cacheEvents;
-  `endif
-  `ifdef PERFORMANCE_MONITORING
+  `elsif PERFORMANCE_MONITORING
   method EventsCacheCore events;
   `endif
 endinterface: CacheCore
@@ -212,20 +212,24 @@ typedef struct {
 
 typedef Vector#(TDiv#(CheriDataWidth,8), Bool) ByteEnable;
 
-`ifdef PERFORMANCE_MONITORING
-typedef struct {
-   Bool evt_WRITE;
-   Bool evt_WRITE_MISS;
-   Bool evt_READ;
-   Bool evt_READ_MISS;
-   Bool evt_EVICT;
-} EventsCacheCore deriving (Bits, FShow);
+`ifdef MONITOR_EVENTS
+  typedef struct {
+    Bool evt_WRITE;
+    Bool evt_WRITE_MISS;
+    Bool evt_READ;
+    Bool evt_READ_MISS;
+    Bool evt_EVICT;
+  `ifdef USECAP
+      Bool evt_SET_TAG_WRITE;
+      Bool evt_SET_TAG_READ;
+  `endif
+  } EventsCacheCore deriving (Bits, FShow);
+`endif
 
-instance BitVectorable #(EventsCacheCore, 1, n) provisos (Bits #(EventsCacheCore, n));
-   function Vector #(n, Bit #(1)) to_vector (EventsCacheCore e);
-      return reverse (unpack (pack (e)));
-   endfunction
-endinstance
+`ifdef PERFORMANCE_MONITORING
+  instance BitVectorable#(EventsCacheCore, 1, m) provisos (Bits#(EventsCacheCore, m));
+    function to_vector = struct_to_vector;
+  endinstance
 `endif
 /*
  * The CacheCore module is a generic cache engine that is parameterisable
@@ -318,13 +322,11 @@ module mkCacheCore#(Integer cacheId,
   VnD#(RequestRecord#(ways, keyBits, tagBits)) readReqRegDefault = VnD{v:False, d:?};
   readReqRegDefault.d.outId = unpack(-1);
   Reg#(VnD#(RequestRecord#(ways, keyBits, tagBits)))         readReqReg <- mkConfigReg(readReqRegDefault); // Hold data for outstanding memory request
-  `ifdef STATCOUNTERS
-    Wire#(CacheCoreEvents)  cacheCoreEventsWire <- mkDWire(defaultValue);
-    Reg#(ReqId) lastRespId <- mkReg(unpack(~0));
-  `endif
-  
-  `ifdef PERFORMANCE_MONITORING
+  `ifdef MONITOR_EVENTS
     Wire#(EventsCacheCore) eventsWire <- mkDWire(unpack(0));
+    `ifdef USECAP
+      Reg#(ReqId) lastRespId <- mkReg(unpack(~0));
+    `endif
   `endif
   
   Bool writeThrough = writeBehaviour==WriteThrough;
@@ -770,11 +772,8 @@ module mkCacheCore#(Integer cacheId,
     
     if (!noReqs) debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Commit:%x, Serving request ", $time, cacheId, commit, fshow(ct), fshow(dataRead), fshow(tagsRead)));
 
-    `ifdef STATCOUNTERS
-      CacheCoreEvents cacheCoreEvents = defaultValue;
-    `endif
-    `ifdef PERFORMANCE_MONITORING
-      EventsCacheCore events = unpack (0);
+    `ifdef MONITOR_EVENTS
+      EventsCacheCore events = unpack(0);
     `endif
     
     VnD#(RequestRecord#(ways, keyBits, tagBits)) newReadReqReg = readReqReg;
@@ -828,11 +827,8 @@ module mkCacheCore#(Integer cacheId,
                                             ct.dataKey, cts.way, 0));
             end
           `endif
-          `ifdef STATCOUNTERS
-            if (ct.addr.bank==0) cacheCoreEvents.incEvict = True; // trace a writeback once per line.
-          `endif
-          `ifdef PERFORMANCE_MONITORING
-            if (ct.addr.bank==0) events.evt_EVICT = True;
+          `ifdef MONITOR_EVENTS
+            if (ct.addr.bank==0) events.evt_EVICT = True; // trace a writeback once per line.
           `endif
         end
       end
@@ -1394,30 +1390,14 @@ module mkCacheCore#(Integer cacheId,
             endcase,
             req.operation matches tagged Read .* ?"R":"W",(miss)?"M":"H", addr));
           end
-          `ifdef STATCOUNTERS
-            cacheCoreEvents = CacheCoreEvents {
-              id: fromInteger(cacheId),
-              whichCache: whichCache,
-              incHitWrite:   (firstFresh && !miss && isWrite),
-              incMissWrite:  (firstFresh &&  miss && isWrite),
-              incHitRead:    (firstFresh && !miss && isRead),
-              incMissRead:   (firstFresh &&  miss && isRead),
-              //incHitPftch:   (firstFresh && !miss && isPftch),
-              //incMissPftch:  (firstFresh &&  miss && isPftch),
-              incEvict:      (False)
-              //incPftchEvict: (evict && isPftch)
-              `ifdef USECAP
-                ,
-                incSetTagWrite: ?,
-                incSetTagRead:  ?
-              `endif
-            };
-          `endif
-          `ifdef PERFORMANCE_MONITORING
+          `ifdef MONITOR_EVENTS
             events.evt_WRITE = firstFresh && isWrite;
             events.evt_WRITE_MISS = firstFresh && isWrite && miss;
             events.evt_READ = firstFresh && isRead;
             events.evt_READ_MISS = firstFresh && isRead && miss;
+            //incHitPftch:   (firstFresh && !miss && isPftch),
+            //incMissPftch:  (firstFresh &&  miss && isPftch),
+            //incPftchEvict: (evict && isPftch)
           `endif
           
           if (cachedResponse) begin
@@ -1475,8 +1455,10 @@ module mkCacheCore#(Integer cacheId,
                 //$display("capTags: %x", capTags);
                 tag.capTags[addr.bank] = capTags; // Is this necessary?
                 tagUpdate.newTag.capTags[addr.bank] = capTags;
-                `ifdef STATCOUNTERS
-                  cacheCoreEvents.incSetTagWrite = pack(capTags) != 0;
+                `ifdef MONITOR_EVENTS
+                  `ifdef USECAP
+                    events.evt_SET_TAG_WRITE = pack(capTags) != 0;
+                  `endif
                 `endif
               `endif
               //Write updated line to cache.
@@ -1526,13 +1508,13 @@ module mkCacheCore#(Integer cacheId,
               default: respValid = False;
             endcase
           end
-          `ifdef STATCOUNTERS
+          `ifdef MONITOR_EVENTS
             `ifdef USECAP
               if (cacheResp.operation matches tagged Read .rop &&& getRespId(cacheResp) != lastRespId) begin
-                cacheCoreEvents.incSetTagRead = pack(cacheResp.data.cap) != 0;
+                events.evt_SET_TAG_READ = pack(cacheResp.data.cap) != 0;
               end
+              lastRespId <= getRespId(cacheResp);
             `endif
-            lastRespId <= getRespId(cacheResp);
           `endif
         end
       end
@@ -1543,10 +1525,7 @@ module mkCacheCore#(Integer cacheId,
       enqRetryReq = True;
     end
 
-    `ifdef STATCOUNTERS
-      cacheCoreEventsWire <= cacheCoreEvents;
-    `endif
-    `ifdef PERFORMANCE_MONITORING
+    `ifdef MONITOR_EVENTS
       eventsWire <= events;
     `endif
     
@@ -1749,11 +1728,27 @@ module mkCacheCore#(Integer cacheId,
   `ifdef STATCOUNTERS
   interface Get cacheEvents;
       method ActionValue#(ModuleEvents) get;
-          return tagged CacheCore_E cacheCoreEventsWire;
+          let cacheCoreEvents = CacheCoreEvents {
+            id: fromInteger(cacheId),
+            whichCache: whichCache,
+            incHitWrite:   eventsWire.evt_WRITE && !eventsWire.evt_WRITE_MISS,
+            incMissWrite:  eventsWire.evt_WRITE_MISS,
+            incHitRead:    eventsWire.evt_READ && !eventsWire.evt_READ_MISS,
+            incMissRead:   eventsWire.evt_READ_MISS,
+            //incHitPftch:   eventsWire. ,
+            //incMissPftch:  eventsWire. ,
+            incEvict:      eventsWire.evt_EVICT
+            //incPftchEvict: eventsWire. 
+            `ifdef USECAP
+              ,
+              incSetTagWrite: eventsWire.evt_SET_TAG_WRITE,
+              incSetTagRead:  eventsWire.evt_SET_TAG_READ
+            `endif
+          };
+          return tagged CacheCore_E cacheCoreEvents;
       endmethod
   endinterface
-  `endif
-  `ifdef PERFORMANCE_MONITORING
+  `elsif PERFORMANCE_MONITORING
   method events = eventsWire;
   `endif
 endmodule

@@ -70,8 +70,7 @@ interface TagLookupIfc;
   interface Master#(CheriMemRequest, CheriMemResponse) memory;
   `ifdef STATCOUNTERS
   interface Get#(ModuleEvents) cacheEvents;
-  `endif
-  `ifdef PERFORMANCE_MONITORING
+  `elsif PERFORMANCE_MONITORING
   method EventsCacheCore events;
   `endif
 endinterface
@@ -771,8 +770,7 @@ module mkMultiLevelTagLookup #(
   interface Get cacheEvents;
     method ActionValue#(ModuleEvents) get () = tagCache.cacheEvents.get();
   endinterface
-  `endif
-  `ifdef PERFORMANCE_MONITORING
+  `elsif PERFORMANCE_MONITORING
   method events = tagCache.events;
   `endif
 
