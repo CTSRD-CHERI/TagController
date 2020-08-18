@@ -64,7 +64,7 @@ interface TagControllerAXI#(
   interface AXI4_Slave#(id_, addr_, data_, 0, CapsPerFlit, 0, 0, CapsPerFlit) slave;
   method Action clear;
 `ifdef PERFORMANCE_MONITORING
-  method Vector#(19, Bit#(1)) events;
+  method Vector#(7, Bit#(1)) events;
 `endif
 endinterface
 
@@ -81,10 +81,6 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,T
   //Workaround: these are being enqueued while full in Piccolo. Made the buffer size larger (32 from 4)
   AXI4_Shim#(id_, addr_, TMul#(CheriBusBytes, 8), 0, CapsPerFlit, 0, 0, CapsPerFlit) shimSlave  <- mkAXI4ShimBypassFIFOF;//mkAXI4ShimFF;
   AXI4_Shim#(SizeOf#(ReqId), addr_, TMul#(CheriBusBytes, 8), 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimBypassFIFOF;
-`ifdef PERFORMANCE_MONITORING
-  let perfSlave <- toAXI4_Slave_Perf(shimSlave.slave);
-  let perfMaster <- toAXI4_Master_Perf(shimMaster.master);
-`endif
   let awreqff <- mkFIFOF;
   let addrOffset <- mkReg(0);
   Reg#(Bool) reset_done <- mkReg(False);
@@ -173,12 +169,9 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,T
     shimSlave.clear;
     shimMaster.clear;
   endaction;
-`ifndef PERFORMANCE_MONITORING
   interface slave  = shimSlave.slave;
   interface master = shimMaster.master;
-`else
-  interface slave  = perfSlave.mdle;
-  interface master = perfMaster.mdle;
-  method events = append(tagCon.events, append(to_vector(perfSlave.events), to_vector(perfMaster.events)));
+`ifdef PERFORMANCE_MONITORING
+  method events = tagCon.events;
 `endif
 endmodule
