@@ -35,6 +35,7 @@
  * @BERI_LICENSE_HEADER_END@
  */
 
+import Debug :: *;
 import Vector :: *;
 import VnD :: *;
 import FF :: *;
@@ -113,7 +114,7 @@ module mkSmallBag (Bag#(numElems, keyType, datType))
         if (newBag[idx].v) key = idx;
       end
       nextValidKeyReg <= key;
-      if (!newBag[key].v && !all(notValid, newBag)) $display("Panic! Returning invalid element for next when not empty!");
+      if (!newBag[key].v && !all(notValid, newBag)) panic($display("Panic! Returning invalid element for next when not empty!"));
     end
   endrule
 
@@ -204,7 +205,7 @@ module mkFFBag (FFBag#(numElems, keyType, datType, depth))
       fifos[vndIdx.d].enq(Entry{key: key, dat: d});
     end else if (nextEmpty matches tagged Valid .idx) begin
       fifos[idx].enq(Entry{key: key, dat: d});
-    end else $display("Panic! Enqued new key with no empty FIFOs!");
+    end else panic($display("Panic! Enqued new key with no empty FIFOs!"));
   endmethod
 
   method VnD#(datType) first(keyType key);
@@ -214,7 +215,7 @@ module mkFFBag (FFBag#(numElems, keyType, datType, depth))
 
   method Action deq(keyType key);
     let vndIdx = matchIdx(key);
-    if (!vndIdx.v) $display("Panic!  Deq called on fifo ID that is not present");
+    if (!vndIdx.v) panic($display("Panic!  Deq called on fifo ID that is not present"));
     fifos[vndIdx.d].deq;
   endmethod
 

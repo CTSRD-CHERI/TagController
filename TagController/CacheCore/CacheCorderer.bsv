@@ -224,7 +224,7 @@ module mkCacheCorderer#(Integer cacheId)(CacheCorderer#(inFlight));
   endmethod
   method Action slaveRsp(ReqId id, Bool last);
     VnD#(ReqRec) req = slaveReqs.isMember(id);
-    //if (!req.v) $display("<time %0t, cache %0d, CacheCorderer> Panic! Delivering response for unrecorded ID! ", $time, cacheId, fshow(id));
+    //if (!req.v) panic($display("<time %0t, cache %0d, CacheCorderer> Panic! Delivering response for unrecorded ID! ", $time, cacheId, fshow(id)));
     TransRecord state = slaveRespState;
     Bank flit = state.next;
     if (!state.ongoing) begin
@@ -265,7 +265,7 @@ module mkCacheCorderer#(Integer cacheId)(CacheCorderer#(inFlight));
   // Track metadata for master memory requests, but don't track writes for now.
   method Action mastReq(ReqId id, Bank first, Bank last, Line line, Bool expectResponse);
     //if (expectResponse) begin
-      if (mastReqs.full) $display("<time %0t, cache %0d, CacheCorderer> Panic! Enquing mastReqs when full. ", $time, cacheId);
+      if (mastReqs.full) panic($display("<time %0t, cache %0d, CacheCorderer> Panic! Enquing mastReqs when full. ", $time, cacheId));
       ReqRec recReq = ReqRec{id: id, line: ?, first: first, last: last, idBeforeMe: ?};
       debug2("corderer", $display("<time %0t, cache %0d, CacheCorderer> Master request: ", $time, cacheId, fshow(recReq)));
       mastReqs.insert(id, recReq);
@@ -278,7 +278,7 @@ module mkCacheCorderer#(Integer cacheId)(CacheCorderer#(inFlight));
     TransRecord state = mastRespState;
     Bank flit = state.next;
     //if (read) begin
-      if (!req.v) $display("<time %0t, cache %0d, CacheCorderer> Panic! Memory response for unrecorded ID! ", $time, cacheId, fshow(id));
+      if (!req.v) panic($display("<time %0t, cache %0d, CacheCorderer> Panic! Memory response for unrecorded ID! ", $time, cacheId, fshow(id)));
       if (!state.ongoing) begin
         state = defaultTransRecord;
         state.id = id;

@@ -171,6 +171,13 @@ function Action debug_tlb(Action a) = noAction;
 function Action cycReport(Action a) = noAction;	  
 `endif
 
+function Action panic(Action a);
+  action
+    a;
+    $finish(1);
+  endaction
+endfunction
+
 interface Debug#(type a, type b);
   interface a inf;
   interface b debugging;

@@ -650,7 +650,7 @@ module mkCacheCore#(Integer cacheId,
         if (invPending.v) begin
           invPendWay.v = True;
           if (readReqReg.d.write && writethroughNext.notFull) writethroughNext.enq(?);
-          //if (!oneInFlight) $display("Panic!  Pending invalidation not supported yet with more than one in flight in CacheCore.");
+          //if (!oneInFlight) panic($display("Panic!  Pending invalidation not supported yet with more than one in flight in CacheCore."));
         end
       end else invalidateDone = True; // Invalidate is done if it is not a hit!
     end
@@ -789,7 +789,7 @@ module mkCacheCore#(Integer cacheId,
           req.transactionID = orderer.mastNextId;
           debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Issuing external writeback memory request memReqs.notFull:%x, memReqFifoSpace:%x addr:%x ", 
                                          $time, cacheId, memReqs.notFull, memReqFifoSpace, req.addr, fshow(getReqId(req))));
-          if (orderer.mastCheckId(getReqId(req))) $display("Panic!  Issuing duplicate request IDs!");
+          if (orderer.mastCheckId(getReqId(req))) panic($display("Panic!  Issuing duplicate request IDs!"));
           memReqs.enq(req);
           orderer.mastReq(getReqId(req), ct.addr.bank, ct.addr.bank, truncateLSB(req.addr.lineNumber), False);
 
