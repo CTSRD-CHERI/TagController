@@ -244,6 +244,12 @@ module mkTagController(TagControllerIfc);
         end
         if (canDoEnq) begin
             mReqs.enq(req);
+            // Signal that the next burst in mReqs can be forwarded downstream.
+            // FIXME: If we receive a read request in the middle of a write
+            // burst this will erroneously forward the first part of the burst,
+            // followed by the read, early, and risk a tag lookup write request
+            // being interleaved with it. Currently TagControllerAXI will avoid
+            // interleaving the two to work around this limitation.
             if (getLastField(req)) mReqBurst.enq(?);
         end
         if (req.operation matches tagged Read .rop) begin
