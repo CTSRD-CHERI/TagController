@@ -146,20 +146,20 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,T
       end
       tagged Read .r: shimMaster.slave.ar.put(r);
     endcase
-    //printDbg(dbg, $format("Memory request ", fshow(ar)));
+    debug2("tagcontroller", $display("Memory request ", fshow(ar)));
   endrule
   (* descending_urgency = "passMemoryResponseRead, passMemoryResponseWrite" *)
   rule passMemoryResponseWrite;
     let rsp <- get(shimMaster.slave.b);
     CheriMemResponse mr = axi2mem_rsp(Write(rsp));
     tagCon.memory.response.put(mr);
-    //printDbg(dbg, $format("Memory write response ", fshow(rsp)));
+    debug2("tagcontroller", $display("Memory write response ", fshow(rsp)));
   endrule
   rule passMemoryResponseRead;
     let rsp <- get(shimMaster.slave.r);
     CheriMemResponse mr = axi2mem_rsp(Read(rsp));
     tagCon.memory.response.put(mr);
-    //printDbg(dbg, $format("Memory read response ", fshow(rsp)));
+    debug2("tagcontroller", $display("Memory read response ", fshow(rsp)));
   endrule
 
   method clear if (reset_done) = action
