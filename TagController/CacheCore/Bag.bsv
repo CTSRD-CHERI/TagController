@@ -96,7 +96,8 @@ module mkSmallBag (Bag#(numElems, keyType, datType))
       if (updateItem.v && bag[i].d.key == updateItem.d.key)
         newBag[i].d.dat = updateItem.d.dat;
       if (insertItem.v && bag[i].d.key == insertItem.d.key) begin
-        newBag[i] = insertItem;
+        if (!inserted) newBag[i].v = True;
+        newBag[i].d.dat = insertItem.d.dat;
         inserted = True;
       end
       // Make sure this check reflects a concurrant invalidate.
