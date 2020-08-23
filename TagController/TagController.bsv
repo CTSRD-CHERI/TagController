@@ -318,11 +318,11 @@ module mkTagController(TagControllerIfc);
       method Bool canGet() = memoryCanGet;
       method CheriMemRequest peek() = memoryGetPeek;
       method ActionValue#(CheriMemRequest) get() if (memoryCanGet);
-        if (!mReqBurst.notEmpty) let unused <- tagLookup.memory.request.get();
-        else begin
+        if (mReqBurst.notEmpty) begin
           mReqs.deq();
           if (getLastField(mReqs.first)) mReqBurst.deq();
         end
+        else let unused <- tagLookup.memory.request.get();
         debug2("tagcontroller", $display("<time %0t TagController> request to memory (ForwardingMemoryRequest:%d): ", $time, mReqBurst.notEmpty, " ", fshow(memoryGetPeek)));
         return memoryGetPeek;
       endmethod
