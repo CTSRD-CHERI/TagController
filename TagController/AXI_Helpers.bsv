@@ -118,7 +118,7 @@ function DRAMReq#(id_, addr_) mem2axi_req(CheriMemRequest mr)
     tagged Write .w: begin
       //XXX horrible hack - from 40 bits restriction
       // support addresses up to 64 bits, only considers bottom 40 bits
-      Bit#(64) tmp = zeroExtend(pack(mr.addr) & (~0 << pack(BYTE_8)));
+      Bit#(64) tmp = zeroExtend(pack(mr.addr) & (~0 << pack(cheriBusBytes)));
       Bit#(TAdd#(1, TLog#(CheriBusBytes))) byteEnableOnes = pack(countOnes(pack(w.byteEnable)));
       req = tagged Write WriteReqFlit{
         aw: AXI4_AWFlit{
