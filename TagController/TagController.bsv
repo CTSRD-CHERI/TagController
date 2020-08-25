@@ -266,7 +266,7 @@ module mkTagController(TagControllerIfc);
             for (i = 0; i < valueOf(CapsPerFlit); i = i + 1) begin
               CapOffsetInLine ibit = fromInteger(i);
               newTagWrite.tags[tagOffsetInLine + ibit] = wop.data.cap[i];
-              Bit#(CapBytes) capBEs = pack(wop.byteEnable)[bot+valueOf(TMin#(CheriBusBytes, CapBytes))-1:bot];
+              Bit#(TMin#(CheriBusBytes, CapBytes)) capBEs = pack(wop.byteEnable)[bot+valueOf(TMin#(CheriBusBytes, CapBytes))-1:bot];
               newTagWrite.writeEnable[tagOffsetInLine + ibit] = (capBEs == 0) ? False:True;
               bot = bot + valueOf(CapBytes);
             end
