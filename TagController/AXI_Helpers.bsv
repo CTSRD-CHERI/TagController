@@ -79,9 +79,9 @@ function CheriMemRequest axi2mem_req(MemReq#(id_, addr_) mr)
         operation: tagged Write {
                         uncached: (w.aw.awcache < 4), // All options less than 4 look like uncached.
                         conditional: False, // For now?
-                        byteEnable: unpack(truncate(w.w.wstrb)),
+                        byteEnable: unpack(w.w.wstrb),
                         bitEnable: -1,
-                        data: Data{cap: unpack(w.w.wuser), data: truncate(w.w.wdata)},
+                        data: Data{cap: unpack(w.w.wuser), data: w.w.wdata},
                         last: w.w.wlast,
                         length: w.aw.awlen
                     },
@@ -100,7 +100,7 @@ function CheriMemRequest axi2mem_req(MemReq#(id_, addr_) mr)
         operation: tagged Read {
                         uncached: (r.arcache < 4), // All options less than 4 look like uncached.
                         linked: False, // For now?
-                        noOfFlits: unpack(truncate(r.arlen)),
+                        noOfFlits: unpack(truncate(r.arlen)), // XXX support full burst length
                         bytesPerFlit: unpack(pack(r.arsize)),
                         tagOnlyRead: False // XXX support for CLoadTags lost by AXI conversion
                     },
