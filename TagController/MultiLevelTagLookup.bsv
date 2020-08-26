@@ -317,7 +317,7 @@ module mkMultiLevelTagLookup #(
       z = True; // we need zeroing
       Integer i = 0;
       CheriPhyByteOffset nodeOffset = byteOffset&(~0 << (t.groupFactorLog - 3));
-      for (i = 0; i < (div(t.groupFactor,16)); i = i + 1) begin
+      for (i = 0; i < (div(t.groupFactor,8)); i = i + 1) begin
         wbyteE[nodeOffset+fromInteger(i)] = True;
       end
     end

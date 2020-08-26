@@ -83,6 +83,7 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,T
   AXI4_Shim#(SizeOf#(ReqId), addr_, TMul#(CheriBusBytes, 8), 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimBypassFIFOF;
   let awreqff <- mkFIFOF;
   let addrOffset <- mkReg(0);
+  Reg#(Bool) writeBurst <- mkReg(False);
   Reg#(Bool) reset_done <- mkReg(False);
 
   rule propagateReset(!reset_done);
@@ -98,15 +99,17 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,T
   endrule
 
   // Rules to feed the tag controller from the slave AXI interface
-  // Ready if there is no read request or if the write request id is first.
+  // Ready if there is no read request or if the write request is first.
   (* descending_urgency = "passCacheRead, passCacheWrite" *)
   rule passCacheWrite;
     let awreq = awreqff.first;
     let wreq <- get(shimSlave.master.w);
     if (wreq.wlast) begin
+      writeBurst <= False;
       addrOffset <= 0;
       awreqff.deq;
     end else begin
+      writeBurst <= True;
       addrOffset <= addrOffset + (1 << pack(awreq.awsize));
     end
     awreq.awaddr = awreq.awaddr + addrOffset;
@@ -114,8 +117,10 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,T
     tagCon.cache.request.put(mreq);
     debug2("tagcontroller", $display("TagController write request ", fshow(awreq), " - ", fshow(wreq)));
   endrule
-  // Ready if there is no write request or if the read request id is first.
-  rule passCacheRead;
+  // Ready if there is no partial write burst or if the read request is first.
+  // The tag controller is currently unable to correctly handle a read in the
+  // middle of a write burst; if fixed, the condition can be removed.
+  rule passCacheRead(!writeBurst);
     let ar <- get(shimSlave.master.ar);
     tagCon.cache.request.put(axi2mem_req(Read(ar)));
     //printDbg(dbg, $format("TagController read request ", fshow(ar)));
@@ -148,20 +153,20 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,T
       end
       tagged Read .r: shimMaster.slave.ar.put(r);
     endcase
-    //printDbg(dbg, $format("Memory request ", fshow(ar)));
+    debug2("tagcontroller", $display("Memory request ", fshow(ar)));
   endrule
   (* descending_urgency = "passMemoryResponseRead, passMemoryResponseWrite" *)
   rule passMemoryResponseWrite;
     let rsp <- get(shimMaster.slave.b);
     CheriMemResponse mr = axi2mem_rsp(Write(rsp));
     tagCon.memory.response.put(mr);
-    //printDbg(dbg, $format("Memory write response ", fshow(rsp)));
+    debug2("tagcontroller", $display("Memory write response ", fshow(rsp)));
   endrule
   rule passMemoryResponseRead;
     let rsp <- get(shimMaster.slave.r);
     CheriMemResponse mr = axi2mem_rsp(Read(rsp));
     tagCon.memory.response.put(mr);
-    //printDbg(dbg, $format("Memory read response ", fshow(rsp)));
+    debug2("tagcontroller", $display("Memory read response ", fshow(rsp)));
   endrule
 
   method clear if (reset_done) = action
