@@ -46,6 +46,8 @@ import VnD::*;
 import TagTableStructure::*;
 `ifdef STATCOUNTERS
 import StatCounters::*;
+`elsif PERFORMANCE_MONITORING
+import PerformanceMonitor::*;
 `endif
 //import TagLookup::*;
 import MultiLevelTagLookup::*;
@@ -70,6 +72,8 @@ interface TagControllerIfc;
   interface Master#(CheriMemRequest, CheriMemResponse) memory;
   `ifdef STATCOUNTERS
   interface Get#(ModuleEvents) cacheEvents;
+  `elsif PERFORMANCE_MONITORING
+  method Vector#(7, Bit#(1)) events;
   `endif
 endinterface
 
@@ -352,6 +356,8 @@ module mkTagController(TagControllerIfc);
   interface Get cacheEvents;
     method ActionValue#(ModuleEvents) get () = tagLookup.cacheEvents.get();
   endinterface
+  `elsif PERFORMANCE_MONITORING
+  method events = to_large_vector(tagLookup.events);
   `endif
 
 endmodule
