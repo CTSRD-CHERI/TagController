@@ -1,6 +1,6 @@
 #! /usr/bin/env python3
 #-
-# Copyright (c) 2016 Alexandre Joannou
+# Copyright (c) 2016-2021 Alexandre Joannou
 # Copyright (c) 2019 Jonathan Woodruff
 # All rights reserved.
 #
@@ -29,30 +29,42 @@
 
 import argparse
 from datetime import datetime
-from math import log
 import functools
+
+def ceillog2 (x):
+    return max(0, x.bit_length() - 1)
 
 ################################
 # Parse command line arguments #
 ################################
 
-parser = argparse.ArgumentParser(description='script parameterizing the cheri tags controller')
+parser = argparse.ArgumentParser(description='''
+    Deduce parameters of a tag store covering an associated data store from specified:
+      * tag store top address
+      * data store base address
+      * data store size
+    ''')
+
+def auto_roundup_power2 (x):
+    return 2**(max(0, x-1)).bit_length()
 
 def auto_int (x):
     return int(x,0)
 
-parser.add_argument('-v', '--verbose', action='store_true', default=False,
+# positional
+parser.add_argument('data_store_size', type=auto_int, metavar='DATA_STORE_SIZE', #default=(2**30+2**20),
+                    help="the size in bytes of the covered data store")
+parser.add_argument('tag_store_top_addr', type=auto_int, metavar='TAG_STORE_TOP_ADDR', #default=0x40000000,
+                    help="memory address at which the tag store should start growing down from")
+# optional
+parser.add_argument('-v', '--verbose', action='count', default=1,
                     help="turn on output messages")
-parser.add_argument('-c','--cap-size', type=auto_int, default=256,
-                    help="capability size in bits")
+parser.add_argument('--data-store-base-addr', type=auto_int, default=0x00000000,
+                    help="the address at which the covered data store should start growing up from")
+parser.add_argument('-c','--tagged-chunk-size', type=auto_roundup_power2, default=256,
+                    help="size in bits of a tagged memory chunk (implicitly rounded up to the nearest power of 2)")
 parser.add_argument('-s','--structure', type=auto_int, nargs='+', default=[0],
                     help="list from leaf to root of branching factors describing the tags tree")
-parser.add_argument('-t','--top-addr', type=auto_int, default=0x40000000,
-                    help="memory address at which the tags table should start growing down from")
-parser.add_argument('--covered-start-addr', type=auto_int, default=0x00000000,
-                    help="the starting address of the region for which the tag controller should preserve tags")
-parser.add_argument('-m','--covered-mem-size', type=auto_int, default=(2**30+2**20),
-                    help="size of the memory to be covered by the tags")
 parser.add_argument('-a','--addr-align', type=auto_int, default=32,
                     help="alignement requirement (in bytes) for table levels addresses")
 parser.add_argument('-b','--bsv-import-output', nargs='?', const="TagTableStructure.bsv", default=None,
@@ -62,68 +74,100 @@ parser.add_argument('-l','--linker-inc-output', nargs='?', const="tags-params.ld
 
 args = parser.parse_args()
 
-if args.verbose:
-    def verboseprint(msg):
+def verboseprint(lvl, msg):
+    if args.verbose >= lvl:
         print(msg)
-else:
-    verboseprint = lambda *a: None
+
+verboseprint(3, '''NOTE: the tag store is expected to be layed out as follows
+
+      high addrs <---------------------------------------------> low addrs
+(tag_store_top_addr)                                        (tag_store_base_addr)
+        |                                                            |
+   -----|------------------------------------------------------------|-----
+    ... | lvl 0 (leaf) | lvl 1 |    ...   | lvl (n-1) | lvl n (root) | ...
+   -----|------------------------------------------------------------|-----
+''')
 
 ####################################
 # values the script will work with #
 ####################################
 
-verboseprint("Deriving tags configuration from parameters:")
-verboseprint("covered_mem_size = %d bytes" % args.covered_mem_size)
-verboseprint("cap_size = %d bits" % args.cap_size)
-verboseprint("top_addr = 0x%x" % args.top_addr)
-verboseprint("addr_align = %d bytes (%d addr bottom bits to ignore)" % (args.addr_align, log(args.addr_align,2)))
-verboseprint("structure = %s" % args.structure)
+verboseprint(2, "--- input parameters ---")
+verboseprint(2, "data_store_size = 0x{:08x}({:d}) bytes".format(args.data_store_size, args.data_store_size))
+verboseprint(2, "tagged_chunk_size = {:d} bits".format(args.tagged_chunk_size))
+verboseprint(2, "tag_store_top_addr = 0x{:08x}".format(args.tag_store_top_addr))
+verboseprint(2, "addr_align = 0x{:04x}({:d}) bytes (ignore bottom {:d} addr bits)".format(args.addr_align, args.addr_align, ceillog2(args.addr_align)))
+verboseprint(2, "structure = {:s}".format(str(args.structure)))
 
 ######################
 # compute parameters #
 ######################
 
 class TableLvl():
-    def __init__ (self, startAddr, size):
-        self.startAddr = startAddr
+    def __init__ (self, base_addr, size):
+        self.base_addr = base_addr
         self.size = size
     def __repr__(self):
         return str(self)
     def __str__(self):
-        return "{0x%x, %d bytes}" % (self.startAddr, self.size)
+        return "{{base: 0x{:08x}, {:d} bytes}}".format(self.base_addr, self.size)
 
 def table_lvl(lvl):
-    mask = ~0 << int(log(args.addr_align,2))
+    mask = ~0 << ceillog2(args.addr_align)
     if lvl == 0:
-        size = args.covered_mem_size // args.cap_size
-        addr = args.top_addr-size
+        # Note: tagged_chunk_size is a size in bits
+        #       data_store_size is a size in bytes
+        #       // is floor division
+        #       Here we assume a _single_ bit tag per tagged chunk
+        size = args.data_store_size // args.tagged_chunk_size
+        addr = args.tag_store_top_addr - size
     else:
         t = table_lvl(lvl-1)
+        # Note: here we assume that _single_ bits in the (lvl) store cover for
+        #       (structure[lvl]) bits in the (lvl-1) store
         size = t.size // args.structure[lvl]
-        addr = t.startAddr-size
+        addr = t.base_addr - size
     return TableLvl (addr&mask, size)
 
-if args.cap_size > 0:
+if args.tagged_chunk_size > 0:
     lvls = list( map (table_lvl, range(0,len(args.structure))))
 else:
-    lvls = [TableLvl(args.top_addr,0)]
+    lvls = [TableLvl(args.tag_store_top_addr,0)]
 
-###############################
-# display computed parameters #
-###############################
+#######################
+# computed parameters #
+#######################
 
-verboseprint("-"*80)
-verboseprint("lvls = %s" % lvls)
-verboseprint("last_addr = 0x%x" % (lvls[len(lvls)-1].startAddr-1))
-verboseprint("tags_size = %d bytes" % (args.top_addr-lvls[len(lvls)-1].startAddr))
+tag_store_base_addr = lvls[len(lvls)-1].base_addr
+tag_store_top_addr  = args.tag_store_top_addr
+tag_store_size      = tag_store_top_addr - tag_store_base_addr
+
+data_store_base_addr = args.data_store_base_addr
+data_store_size      = args.data_store_size
+data_store_top_addr  = data_store_base_addr + data_store_size
+
+verboseprint(2, "")
+verboseprint(2, "--- deduced tag store parameters ---")
+verboseprint(2, "lvls = {:s}".format(str(lvls)))
+verboseprint(2, "tag store base addr = 0x{:08x}".format(tag_store_base_addr))
+verboseprint(2, "tag store  top addr = 0x{:08x}".format(tag_store_top_addr))
+verboseprint(2, "(tag store size = 0x{:08x}({:d}) bytes)".format(tag_store_size, tag_store_size))
+verboseprint(2, "")
+verboseprint(2, "--- deduced data store parameters ---")
+verboseprint(2, "data store base addr = 0x{:08x}".format(data_store_base_addr))
+verboseprint(2, "data store  top addr = 0x{:08x}".format(data_store_top_addr))
+verboseprint(2, "(data store size = 0x{:08x}({:d}) bytes)".format(data_store_size, data_store_size))
+if not ((tag_store_base_addr > data_store_top_addr) or (data_store_base_addr > tag_store_top_addr)):
+  verboseprint(2, "")
+  verboseprint(1, "WARNING: overlapping tag store and data store")
 
 ######################################################
 # generate bluespec table configuration import file #
 ######################################################
 
 if args.bsv_import_output:
-    verboseprint("-"*80)
-    verboseprint("generating Bluespec MultiLevelTagLookup module import configuration file %s" % args.bsv_import_output)
+    verboseprint(2, "")
+    verboseprint(2, "generating Bluespec MultiLevelTagLookup module import configuration file %s" % args.bsv_import_output)
     f = open(args.bsv_import_output,'w')
     header = """/*-
  *
@@ -160,10 +204,10 @@ if args.bsv_import_output:
     f.write(decl)
     f.write(structArray)
     f.write(";\n")
-    f.write("Integer table_end_addr = 'h%x;\n" % args.top_addr)
-    f.write("Integer table_start_addr = 'h%x;\n" % lvls[len(lvls)-1].startAddr)
-    f.write("Integer covered_start_addr = 'h%x;\n" % args.covered_start_addr);
-    f.write("Integer covered_mem_size  = 'h%x;\n" % args.covered_mem_size);
+    f.write("Integer table_end_addr = 'h{:x};\n".format(tag_store_top_addr))
+    f.write("Integer table_start_addr = 'h{:x};\n".format(tag_store_base_addr))
+    f.write("Integer covered_start_addr = 'h{:x};\n".format(data_store_base_addr))
+    f.write("Integer covered_mem_size  = 'h{:x};\n".format(data_store_size))
 #    map(f.write,fill)
 
 #######################################################
@@ -171,8 +215,8 @@ if args.bsv_import_output:
 #######################################################
 
 if args.linker_inc_output:
-    verboseprint("-"*80)
-    verboseprint("generating tags configuration linker include file %s" % args.linker_inc_output)
+    verboseprint(2, "")
+    verboseprint(2, "generating tags configuration linker include file %s" % args.linker_inc_output)
     f = open(args.linker_inc_output,'w')
     header = """/*-
  *
@@ -200,7 +244,7 @@ if args.linker_inc_output:
  */
 """
     header += "\n/* This file was generated by the tagsparams.py script */"
-    header += "\n/* %s */\n\n" % str(datetime.now())
-    decl = "__tags_table_size__ = 0x%x;" % (args.top_addr-lvls[len(lvls)-1].startAddr)
+    header += "\n/* {:s} */\n\n".format(str(datetime.now()))
+    decl = "__tags_table_size__ = 0x{:x};".format(tag_store_size)
     f.write(header)
     f.write(decl)
