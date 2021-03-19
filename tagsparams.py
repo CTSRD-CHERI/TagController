@@ -45,11 +45,11 @@ parser = argparse.ArgumentParser(description='''
       * data store size
     ''')
 
-def auto_roundup_power2 (x):
-    return 2**(max(0, x-1)).bit_length()
-
 def auto_int (x):
     return int(x,0)
+
+def auto_roundup_power2 (x):
+    return 2**(max(0, auto_int(x)-1)).bit_length()
 
 # positional
 parser.add_argument('data_store_size', type=auto_int, metavar='DATA_STORE_SIZE', #default=(2**30+2**20),
