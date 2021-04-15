@@ -372,7 +372,7 @@ typedef UInt#(2) Bank;
 `ifdef MULTI
   typedef 7 Indices; // Go conservative for multicore.
 `else
-  typedef TLog#(TDiv#(16384, CheriBusBytes)) Indices; // XXX: Don't hardcode?
+  typedef TLog#(TDiv#(65536, CheriBusBytes)) Indices; // XXX: Don't hardcode?
 `endif
 Bit#(3) indicesMinus6 = fromInteger(valueOf(Indices) - 6);
 
