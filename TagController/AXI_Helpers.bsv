@@ -28,8 +28,7 @@
  */
 
 import DefaultValue::*;
-import AXI4_Types::*;
-import AXI4_AXI4Lite_Types :: *;
+import AXI4::*;
 import MemTypesCHERI::*;
 
 typedef struct {
