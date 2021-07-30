@@ -420,6 +420,7 @@ module mkMultiLevelTagLookup #(
                                         byteEnable: unpack(-1),
                                         bitEnable: -1,
                                         data: unpack(0),
+                                        length: 0,
                                         last: True
                                       };
         // send memory request
