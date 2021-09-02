@@ -48,6 +48,7 @@ import TagTableStructure::*;
 import StatCounters::*;
 `elsif PERFORMANCE_MONITORING
 import PerformanceMonitor::*;
+import StatCounters::*;
 `endif
 //import TagLookup::*;
 import MultiLevelTagLookup::*;
@@ -73,7 +74,7 @@ interface TagControllerIfc;
   `ifdef STATCOUNTERS
   interface Get#(ModuleEvents) cacheEvents;
   `elsif PERFORMANCE_MONITORING
-  method Vector#(7, Bit#(1)) events;
+  method EventsCacheCore events;
   `endif
 endinterface
 
@@ -357,7 +358,7 @@ module mkTagController(TagControllerIfc);
     method ActionValue#(ModuleEvents) get () = tagLookup.cacheEvents.get();
   endinterface
   `elsif PERFORMANCE_MONITORING
-  method events = to_large_vector(tagLookup.events);
+  method events = (tagLookup.events);
   `endif
 
 endmodule
