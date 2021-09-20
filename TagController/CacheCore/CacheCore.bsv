@@ -35,7 +35,7 @@
  *
  * @BERI_LICENSE_HEADER_END@
  */
- 
+
 import Debug::*;
 import MemTypesCHERI::*;
 import DefaultValue::*;
@@ -76,7 +76,7 @@ import CacheCorderer::*;
   `define USECAP 1
 `endif
 `endif
- 
+
 interface CacheCore#(numeric type ways,
                      numeric type keyBits,
                      numeric type inFlight);
@@ -212,33 +212,6 @@ typedef struct {
 } TagUpdate#(numeric type ways, numeric type keyBits, numeric type tagBits) deriving (Bits, Eq, FShow);
 
 typedef Vector#(TDiv#(CheriDataWidth,8), Bool) ByteEnable;
-
-//`ifdef MONITOR_EVENTS
-//  typedef struct {
-//    Bool evt_WRITE;
-//    Bool evt_WRITE_MISS;
-//    Bool evt_READ;
-//    Bool evt_READ_MISS;
-//    Bool evt_EVICT;
-//  `ifdef USECAP
-//      Bool evt_SET_TAG_WRITE;
-//      Bool evt_SET_TAG_READ;
-//  `endif
-//  } EventsCacheCore deriving (Bits, FShow);
-//`endif
-//
-//`ifdef PERFORMANCE_MONITORING
-//  instance BitVectorable#(EventsCacheCore, 1, m) provisos (Bits#(EventsCacheCore, m));
-//    function to_vector = struct_to_vector;
-//  endinstance
-//`endif
-/*
- * The CacheCore module is a generic cache engine that is parameterisable
- * by number of sets, number of ways, number of outstanding request,
- * and selectable write-allocate or write-through behaviours.
- * In addition, if the cache core is used as a level1 cache (ICache or DCache)
- * it will return the 64-bit word requested in the bottom of the data field.
- */
 
 module mkCacheCore#(Integer cacheId,
                     WriteMissBehaviour writeBehaviour,
