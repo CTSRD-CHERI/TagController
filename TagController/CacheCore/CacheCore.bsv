@@ -61,7 +61,6 @@ import CacheCorderer::*;
 `elsif PERFORMANCE_MONITORING
 `define MONITOR_EVENTS
   import PerformanceMonitor::*;
-  import StatCounters::*;
 `endif
 
 `ifdef CapWidth
@@ -213,25 +212,25 @@ typedef struct {
 
 typedef Vector#(TDiv#(CheriDataWidth,8), Bool) ByteEnable;
 
-//`ifdef MONITOR_EVENTS
-//  typedef struct {
-//    Bool evt_WRITE;
-//    Bool evt_WRITE_MISS;
-//    Bool evt_READ;
-//    Bool evt_READ_MISS;
-//    Bool evt_EVICT;
-//  `ifdef USECAP
-//      Bool evt_SET_TAG_WRITE;
-//      Bool evt_SET_TAG_READ;
-//  `endif
-//  } EventsCacheCore deriving (Bits, FShow);
-//`endif
-//
-//`ifdef PERFORMANCE_MONITORING
-//  instance BitVectorable#(EventsCacheCore, 1, m) provisos (Bits#(EventsCacheCore, m));
-//    function to_vector = struct_to_vector;
-//  endinstance
-//`endif
+`ifdef MONITOR_EVENTS
+  typedef struct {
+    Bool evt_WRITE;
+    Bool evt_WRITE_MISS;
+    Bool evt_READ;
+    Bool evt_READ_MISS;
+    Bool evt_EVICT;
+  `ifdef USECAP
+      Bool evt_SET_TAG_WRITE;
+      Bool evt_SET_TAG_READ;
+  `endif
+  } EventsCacheCore deriving (Bits, FShow);
+`endif
+
+`ifdef PERFORMANCE_MONITORING
+  instance BitVectorable#(EventsCacheCore, 1, m) provisos (Bits#(EventsCacheCore, m));
+    function to_vector = struct_to_vector;
+  endinstance
+`endif
 /*
  * The CacheCore module is a generic cache engine that is parameterisable
  * by number of sets, number of ways, number of outstanding request,
@@ -829,7 +828,7 @@ module mkCacheCore#(Integer cacheId,
             end
           `endif
           `ifdef MONITOR_EVENTS
-            if (ct.addr.bank==0) events.evt_EVICT = 1; // trace a writeback once per line.
+            if (ct.addr.bank==0) events.evt_EVICT = True; // trace a writeback once per line.
           `endif
         end
       end
@@ -1392,10 +1391,10 @@ module mkCacheCore#(Integer cacheId,
             req.operation matches tagged Read .* ?"R":"W",(miss)?"M":"H", addr));
           end
           `ifdef MONITOR_EVENTS
-            events.evt_WRITE = zeroExtend(pack(firstFresh && isWrite));
-            events.evt_WRITE_MISS = zeroExtend(pack(firstFresh && isWrite && miss));
-            events.evt_READ = zeroExtend(pack(firstFresh && isRead));
-            events.evt_READ_MISS = zeroExtend(pack(firstFresh && isRead && miss));
+            events.evt_WRITE = firstFresh && isWrite;
+            events.evt_WRITE_MISS = firstFresh && isWrite && miss;
+            events.evt_READ = firstFresh && isRead;
+            events.evt_READ_MISS = firstFresh && isRead && miss;
             //incHitPftch:   (firstFresh && !miss && isPftch),
             //incMissPftch:  (firstFresh &&  miss && isPftch),
             //incPftchEvict: (evict && isPftch)
@@ -1458,7 +1457,7 @@ module mkCacheCore#(Integer cacheId,
                 tagUpdate.newTag.capTags[addr.bank] = capTags;
                 `ifdef MONITOR_EVENTS
                   `ifdef USECAP
-                    events.evt_SET_TAG_WRITE = zeroExtend(pack(pack(capTags) != 0));
+                    events.evt_SET_TAG_WRITE = pack(capTags) != 0;
                   `endif
                 `endif
               `endif
@@ -1512,7 +1511,7 @@ module mkCacheCore#(Integer cacheId,
           `ifdef MONITOR_EVENTS
             `ifdef USECAP
               if (cacheResp.operation matches tagged Read .rop &&& getRespId(cacheResp) != lastRespId) begin
-                events.evt_SET_TAG_READ = zeroExtend(pack(pack(cacheResp.data.cap) != 0));
+                events.evt_SET_TAG_READ = pack(cacheResp.data.cap) != 0;
               end
               lastRespId <= getRespId(cacheResp);
             `endif

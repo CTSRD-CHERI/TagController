@@ -47,7 +47,6 @@ import Debug::*;
 `ifdef PERFORMANCE_MONITORING
 import PerformanceMonitor :: *;
 import Vector :: *;
-import StatCounters::*;
 `endif
 
 /******************************************************************************
@@ -65,7 +64,7 @@ interface TagControllerAXI#(
   interface AXI4_Slave#(id_, addr_, data_, 0, CapsPerFlit, 0, 0, CapsPerFlit) slave;
   method Action clear;
 `ifdef PERFORMANCE_MONITORING
-  method EventsCacheCore events;
+  method Vector#(7, Bit#(1)) events;
 `endif
 endinterface
 

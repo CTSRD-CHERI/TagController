@@ -38,8 +38,6 @@ import Printf::*;
 import TagTableStructure::*;
 `ifdef STATCOUNTERS
 import StatCounters::*;
-`elsif PERFORMANCE_MONITORING
-import StatCounters::*;
 `endif
 import Debug::*;
 
