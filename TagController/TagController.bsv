@@ -89,6 +89,7 @@ typedef struct {
 
 typedef TLog#(TDiv#(CapWidth, CheriDataWidth)) LogFlitsPerCap;
 typedef TMax#(TDiv#(CheriDataWidth,CapWidth), 1) CapsPerFlit;
+typedef TLog#(CapsPerFlit) LogCapsPerFlit;
 typedef enum {TagLookupReq, StdReq} MemReqType deriving (FShow, Bits, Eq);
 typedef 4 InFlight;
 typedef 8 MaxBurstLength;
@@ -173,7 +174,14 @@ module mkTagController(TagControllerIfc);
       // look at the tag lookup response
       case (tagRsp.d.tags) matches
         tagged Covered .ts : begin
-          CapOffsetInLine base = thisAddrFrame.d.bank + truncate(memoryResponseFrame >> valueOf(LogFlitsPerCap));
+          // We need to copy tags from the correct place in the tag line into each flit.
+          // If there is more than one cap per flit we need to copy CapsPerFlit
+          // tags for each flit. If there is more than one flit per cap we copy
+          // the same tag into each flit of the cap.
+          // Note that one of LogCapsPerFlit or LogFlitsPerCap will be zero
+          Bit#(TMax#(SizeOf#(CapOffsetInLine), SizeOf#(Frame))) offset = 
+            (zeroExtend(memoryResponseFrame) << valueOf(LogCapsPerFlit)) >> valueOf(LogFlitsPerCap);
+          CapOffsetInLine base = thisAddrFrame.d.bank + truncate(offset);
           for (Integer i = 0; i < valueOf(CapsPerFlit); i = i + 1)
             tags[i] = ts[base + fromInteger(i)];
         end

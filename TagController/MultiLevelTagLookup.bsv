@@ -79,7 +79,6 @@ endinterface
 ///////////////////////////////////////////////////////////////////////////////
 
 typedef enum {Init, Idle, ReadTag, SetTag, ClearTag, FoldZeroes} State deriving (Bits, Eq, FShow);
-typedef TMul#(CapsPerFlit,4) CapsPerLine;
 
 typedef union tagged {
   Bool Node;
@@ -141,7 +140,7 @@ module mkMultiLevelTagLookup #(
     // leaf lvl
     sz = div(memCoveredSize,8*valueof(CapBytes));
     TableLvl tlvl = TableLvl {
-          startAddr: unpack(pack(tagTabEndAddr)-fromInteger(sz)),
+          startAddr: unpack((pack(tagTabEndAddr)-fromInteger(sz)) & ~'h1f), // XXX hardcoded 32 byte alignment
           size: sz,
           shiftAmnt: 0,
           groupFactor: 0,
@@ -162,7 +161,7 @@ module mkMultiLevelTagLookup #(
       else begin
         sz = div(t.size, tableStructure[d]);
         tlvl = TableLvl {
-            startAddr: unpack(pack(t.startAddr)-fromInteger(sz)),
+            startAddr: unpack((pack(t.startAddr)-fromInteger(sz)) & ~'h1f), // XXX hardcoded 32 byte alignment
             size: sz,
             shiftAmnt: t.shiftAmnt + log2(tableStructure[d]),
             groupFactor: tableStructure[d],
@@ -303,7 +302,9 @@ module mkMultiLevelTagLookup #(
     CapNumber cn, // capability number targetted
     Vector#(howmanybits,Bool) ts, // tags
     Vector#(howmanybits,Bool) ce, // "cap enable"
-    Maybe#(TableLvl) nz); // need zeroing
+    Maybe#(TableLvl) nz) // need zeroing
+    provisos(Add#(lesseq, howmanybits, SizeOf#(LineTags)));
+
     // prepare address
     CheriPhyBitAddr a = getTableAddr(d,cn);
     CheriPhyByteOffset byteOffset = a.byteAddr.byteOffset;
@@ -324,17 +325,32 @@ module mkMultiLevelTagLookup #(
     wbyteE[byteOffset] = True;
     // prepare bit enable and new data
     Bit#(8) wbitE   = z ? ~0 : 0;
-    Bit#(8) newData = 0;
+    LineTags newData = replicate(False);
     Vector#(howmanybits,Bool) leafData = zipWith(andBool,ts,ce);
     if (d == leafLvl) begin
       Integer i = 0;
-      for (i = 0; i < valueOf(howmanybits); i = i + 1) begin
-        wbitE[bitOffset+fromInteger(i)] = z ? 1 : pack(ce[i]);
-        newData[bitOffset+fromInteger(i)] = pack(leafData[i]);
+      if (valueOf(howmanybits) < 8) begin
+        for (i = 0; i < valueOf(howmanybits); i = i + 1) begin
+          wbitE[bitOffset+fromInteger(i)] = z ? 1 : pack(ce[i]);
+          newData[bitOffset+fromInteger(i)] = leafData[i];
+        end
+      end else begin
+        // writing at least a byte, so set up the byte enables and don't use bit enable
+        // we assume that cap enable writes entire bytes which will be
+        // true if we are writing an aligned, power of two number of caps.
+        wbitE = ~0;
+        // sample the 0th bit of each byte to make byte enables
+        for (i = 0; i < div(valueOf(howmanybits), 8); i = i + 1) begin
+          // assumes ce[8*(i+1)-1..8*i] are True...
+          wbyteE[byteOffset + fromInteger(i)] = True;
+        end
+        // copy across the data (requires that howmanybits <= SizeOf(LineData))
+        newData = unpack(zeroExtend(pack(leafData)));
       end
     end else begin
+      // we are writing a single bit
       wbitE[bitOffset] = 1;
-      newData[bitOffset] = pack(any(id,leafData));
+      newData[bitOffset] = any(id,leafData);
     end
 
     CheriMemRequest mReq = defaultValue;
@@ -343,7 +359,7 @@ module mkMultiLevelTagLookup #(
     mReq.transactionID   = transNum;
     CheriData wdata = Data {
                 cap: unpack(0),
-                data: zeroExtend(newData) << {byteOffset,3'b0}
+                data: zeroExtend(pack(newData)) << {byteOffset,3'b0}
               };
     mReq.operation = tagged Write {
                           uncached: False,

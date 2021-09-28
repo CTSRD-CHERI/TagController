@@ -33,8 +33,8 @@ BSC = bsc
 BLUEUTILSDIR = ./BlueStuff
 BSVPATH = +:BlueStuff:Test:Test/bluecheck:BlueStuff/BlueBasics:BlueStuff/BlueUtils:BlueStuff/AXI:TagController:TagController/CacheCore
 
-BSCFLAGS = -p $(BSVPATH) -D MEM128 -D CAP128 -D BLUESIM
-CAPSIZE = 128
+BSCFLAGS = -p $(BSVPATH) -D MEM128 -D CapWidth=$(CAPSIZE) -D BLUESIM
+CAPSIZE = 32
 TAGS_STRUCT = 0 128
 TAGS_ALIGN = 16
 

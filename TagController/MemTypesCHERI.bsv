@@ -52,6 +52,11 @@ typedef 8 MaxTransactions;
 typedef 8 MaxNoOfFlits;
 typedef MaxNoOfFlits CheriBurstSize;
 
+`ifdef CAP_VERSION
+  // hack to override cap size for tag controller
+  `define USECAP 1
+  typedef 32 CapWidth;
+`else
 `ifdef CapWidth
   `define USECAP 1
   typedef `CapWidth CapWidth;
@@ -66,6 +71,7 @@ typedef MaxNoOfFlits CheriBurstSize;
 `elsif CAP64
   `define USECAP 1
   typedef 64 CapWidth;
+`endif
 `endif
 `endif
 
