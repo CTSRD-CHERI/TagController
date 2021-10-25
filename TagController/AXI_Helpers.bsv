@@ -39,10 +39,10 @@ deriving (Bits, FShow);
 
 typedef union tagged {
   WriteReqFlit#(id_, addr_, data_, tag_) Write;
-  AXI4_ARFlit#(id_, addr_, 0) Read;
-} ReqFlit#(numeric type id_, numeric type addr_, numeric type data_, numeric type tag_)
+  AXI4_ARFlit#(id_, addr_, user_) Read;
+} ReqFlit#(numeric type id_, numeric type addr_, numeric type data_, numeric type tag_, numeric type user_)
 deriving (Bits, FShow);
-instance DefaultValue#(ReqFlit#(id_, addr_, data_, tag_));
+instance DefaultValue#(ReqFlit#(id_, addr_, data_, tag_, user_));
   function defaultValue = tagged Read defaultValue;
 endinstance
 
@@ -55,11 +55,11 @@ instance DefaultValue#(RspFlit#(id_, data_, tag_));
   function defaultValue = tagged Write defaultValue;
 endinstance
 
-typedef ReqFlit#(id_, addr_, TMul#(CheriBusBytes, 8), CapsPerFlit) MemReq#(numeric type id_, numeric type addr_);
-typedef RspFlit#(id_, TMul#(CheriBusBytes, 8), CapsPerFlit)        MemRsp#(numeric type id_);
+typedef ReqFlit#(id_, addr_, TMul#(CheriBusBytes, 8), CapsPerFlit, 1) MemReq#(numeric type id_, numeric type addr_);
+typedef RspFlit#(id_, TMul#(CheriBusBytes, 8), CapsPerFlit)           MemRsp#(numeric type id_);
 
-typedef ReqFlit#(id_, addr_, TMul#(CheriBusBytes, 8), 0) DRAMReq#(numeric type id_, numeric type addr_);
-typedef RspFlit#(id_, TMul#(CheriBusBytes, 8), 0)        DRAMRsp#(numeric type id_);
+typedef ReqFlit#(id_, addr_, TMul#(CheriBusBytes, 8), 0, 0) DRAMReq#(numeric type id_, numeric type addr_);
+typedef RspFlit#(id_, TMul#(CheriBusBytes, 8), 0)           DRAMRsp#(numeric type id_);
 
 // Request ranslators between AXI and CHERI Memory
 
@@ -101,7 +101,7 @@ function CheriMemRequest axi2mem_req(MemReq#(id_, addr_) mr)
                         linked: False, // For now?
                         noOfFlits: unpack(truncate(r.arlen)), // XXX support full burst length
                         bytesPerFlit: unpack(pack(r.arsize)),
-                        tagOnlyRead: False // XXX support for CLoadTags lost by AXI conversion
+                        tagOnlyRead: r.aruser[0] == 1'b1
                     },
         cancelled: False
       };

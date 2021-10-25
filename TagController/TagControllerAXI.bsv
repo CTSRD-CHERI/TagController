@@ -62,7 +62,7 @@ interface TagControllerAXI#(
   numeric type addr_,
   numeric type data_);
   interface AXI4_Master#(SizeOf#(ReqId), addr_, data_, 0, 0, 0, 0, 0) master;
-  interface AXI4_Slave#(id_, addr_, data_, 0, CapsPerFlit, 0, 0, CapsPerFlit) slave;
+  interface AXI4_Slave#(id_, addr_, data_, 0, CapsPerFlit, 0, 1, CapsPerFlit) slave;
   method Action clear;
 `ifdef PERFORMANCE_MONITORING
   method EventsCacheCore events;
@@ -80,7 +80,7 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,T
   let newRst <- mkReset(0, True, clk);
   TagControllerIfc tagCon <- mkTagController(reset_by newRst.new_rst);
   //Workaround: these are being enqueued while full in Piccolo. Made the buffer size larger (32 from 4)
-  AXI4_Shim#(id_, addr_, TMul#(CheriBusBytes, 8), 0, CapsPerFlit, 0, 0, CapsPerFlit) shimSlave  <- mkAXI4ShimBypassFIFOF;//mkAXI4ShimFF;
+  AXI4_Shim#(id_, addr_, TMul#(CheriBusBytes, 8), 0, CapsPerFlit, 0, 1, CapsPerFlit) shimSlave  <- mkAXI4ShimBypassFIFOF;//mkAXI4ShimFF;
   AXI4_Shim#(SizeOf#(ReqId), addr_, TMul#(CheriBusBytes, 8), 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimBypassFIFOF;
   let awreqff <- mkFIFOF;
   let addrOffset <- mkReg(0);
