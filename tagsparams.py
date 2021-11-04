@@ -204,10 +204,14 @@ if args.bsv_import_output:
     f.write(decl)
     f.write(structArray)
     f.write(";\n")
-    f.write("Integer table_end_addr = 'h{:x};\n".format(tag_store_top_addr))
-    f.write("Integer table_start_addr = 'h{:x};\n".format(tag_store_base_addr))
-    f.write("Integer covered_start_addr = 'h{:x};\n".format(data_store_base_addr))
-    f.write("Integer covered_mem_size  = 'h{:x};\n".format(data_store_size))
+    f.write("typedef 'h{:x} Table_End_Addr;\n".format(tag_store_top_addr))
+    f.write("typedef 'h{:x} Table_Start_Addr;\n".format(tag_store_base_addr))
+    f.write("typedef 'h{:x} Covered_Start_Addr;\n".format(data_store_base_addr))
+    f.write("typedef 'h{:x} Covered_Mem_Size;\n".format(data_store_size))
+    f.write("Integer table_end_addr     = valueOf (Table_End_Addr);\n")
+    f.write("Integer table_start_addr   = valueOf (Table_Start_Addr);\n")
+    f.write("Integer covered_start_addr = valueOf (Covered_Start_Addr);\n")
+    f.write("Integer covered_mem_size   = valueOf (Covered_Mem_Size);\n")
 #    map(f.write,fill)
 
 #######################################################
