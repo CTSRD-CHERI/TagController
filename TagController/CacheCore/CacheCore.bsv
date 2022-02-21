@@ -50,7 +50,7 @@ import MasterSlaveCHERI::*;
 import RoutableCHERI::*;
 import Vector::*;
 import ConfigReg::*;
-import MEM::*;
+import SDPMem::*;
 import Bag::*;
 import VnD::*;
 import CacheCorderer::*;
