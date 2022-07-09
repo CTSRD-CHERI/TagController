@@ -1,5 +1,6 @@
 /* Copyright 2015 Matthew Naylor
  * Copyright 2018 Jonathan Woodruff
+ * Copyright 2022 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -13,7 +14,7 @@
  * This software was developed by the University of Cambridge Computer
  * Laboratory as part of the Rigorous Engineering of Mainstream
  * Systems (REMS) project, funded by EPSRC grant EP/K008528/1.
- * 
+ *
  * This software was developed by SRI International and the University of
  * Cambridge Computer Laboratory (Department of Computer Science and
  * Technology) under DARPA contract HR0011-18-C-0016 ("ECATS"), as part of the
@@ -47,8 +48,8 @@ import Debug        :: *;
 import SourceSink   :: *;
 import RegFileAssoc :: *;
 import RegFileHash  :: *;
+import BlueAXI4     :: *;
 import AXI_Helpers  :: *;
-import AXI4         :: *;
 
 module mkModelDRAMGeneric#
          ( Integer maxOutstandingReqs         // Max outstanding requests
@@ -56,39 +57,39 @@ module mkModelDRAMGeneric#
                    , Bit#(128)
                    ) ram                      // For storage
          )
-         (AXISlave#(8, addrWidth, 128, 0, 0, 0, 0, 0))
+         (AXI4_Slave#(8, addrWidth, 128, 0, 0, 0, 0, 0))
          provisos (Add#(wordAddrWidth, 4, addrWidth)
          );
-         
-  AXIShim#(8, addrWidth, 128, 0, 0, 0, 0, 0) shim <- mkAXIShim();
+
+  AXI4_Shim#(8, addrWidth, 128, 0, 0, 0, 0, 0) shim <- mkAXI4Shim();
 
   // Slave interface
-  FIFOF#(DRAMReq#(addrWidth)) preReqFifo <- mkSizedFIFOF(maxOutstandingReqs);
-  FIFOF#(DRAMRsp) respFifo   <- mkFIFOF;
+  FIFOF#(DRAMReq#(8, addrWidth)) preReqFifo <- mkSizedFIFOF(maxOutstandingReqs);
+  FIFOF#(DRAMRsp#(8)) respFifo   <- mkFIFOF;
 
   // Internal request FIFO contains requests and a flag which denotes
   // the last read request in a burst read.
-  FIFOF#(Tuple2#(DRAMReq#(addrWidth), Bool))  reqFifo <- mkFIFOF;
+  FIFOF#(Tuple2#(DRAMReq#(8,addrWidth), Bool))  reqFifo <- mkFIFOF;
 
   // Storage implemented as a register file
   //RegFile#(Bit#(addrWidth), Bit#(256)) ram <- mkRegFileFull;
 
   // State for burst reads
   Reg#(Bit#(4)) burstReadCount <- mkConfigReg(0);
-  
+
   (* descending_urgency = "fillPreReqFifoWrite, fillPreReqFifoRead" *)
   rule fillPreReqFifoWrite;
-    let aw <- shim.master.aw.get();
-    let  w <- shim.master.w.get();
+    let aw <- get(shim.master.aw);
+    let  w <- get(shim.master.w);
     preReqFifo.enq(Write(WriteReqFlit{
       aw: aw,
       w: w
     }));
     debug2("dram", $display("fillPreReqFifoWrite ", fshow(aw), fshow(w)));
   endrule
-  
+
   rule fillPreReqFifoRead;
-    let ar <- shim.master.ar.get();
+    let ar <- get(shim.master.ar);
     preReqFifo.enq(tagged Read ar);
     debug2("dram", $display("fillPreReqFifoRead ", fshow(ar)));
   endrule
@@ -96,14 +97,14 @@ module mkModelDRAMGeneric#
   // Unroll burst read requests
   rule unrollBurstReads;
     // Extract request
-    DRAMReq#(addrWidth) req  = preReqFifo.first;
+    DRAMReq#(8,addrWidth) req  = preReqFifo.first;
 
     // Only dequeue read request if burst read finished
     Bool last = False;
     if (req matches tagged Read .r)
       begin
         Bit#(addrWidth) addr = r.araddr;
-        ARFlit#(8, addrWidth, 0) newR = r;
+        AXI4_ARFlit#(8, addrWidth, 0) newR = r;
         // Update address to account for bursts
         newR.araddr = addr + (zeroExtend(pack(burstReadCount)) << 4);
         newR.araddr[3:0] = 0;
@@ -131,20 +132,20 @@ module mkModelDRAMGeneric#
     // Extract request
     let req  = tpl_1(reqFifo.first);
     let last = tpl_2(reqFifo.first);
-    Bit#(addrWidth) addr = 
+    Bit#(addrWidth) addr =
       (case (req) matches
         tagged Write .w: return w.aw.awaddr;
         tagged Read  .r: return r.araddr;
       endcase);
     reqFifo.deq;
-    
+
     Bit#(wordAddrWidth) wordAddr = truncate(addr>>4);
 
     // Data lookup
     Bit#(128) data = ram.sub(wordAddr);
-    
+
     // Defualt response
-    DRAMRsp resp = ?;
+    DRAMRsp#(8) resp = ?;
     Bool validResponse = False;
 
     case (req) matches
@@ -159,7 +160,7 @@ module mkModelDRAMGeneric#
               bytes[i] = newBytes[i];
           ram.upd(wordAddr, pack(bytes));
           debug2("dram", $display("Wrote %x to address %x in RAM", bytes, wordAddr));
-          resp = Write(BFlit{
+          resp = Write(AXI4_BFlit{
             bid: write.aw.awid,
             bresp: OKAY,
             buser: ?
@@ -171,7 +172,7 @@ module mkModelDRAMGeneric#
       tagged Read .read:
         begin
           debug2("dram", $display("Read %x from address %x in RAM", data, wordAddr));
-          resp = tagged Read RFlit{
+          resp = tagged Read AXI4_RFlit{
             rid: read.arid,
             rdata: data,
             rresp: OKAY,
@@ -186,7 +187,7 @@ module mkModelDRAMGeneric#
     if (validResponse) respFifo.enq(resp);
     debug2("dram", $display("produceFinalResponses validResponse: %d ", validResponse, fshow(resp)));
   endrule
-  
+
   rule drainRespFifo;
     case (respFifo.first) matches
       tagged Write .w: shim.master.b.put(w);
@@ -203,7 +204,7 @@ endmodule
 // Version using a standard register file
 module mkModelDRAM#
          ( Integer maxOutstandingReqs )       // Max outstanding requests
-         (AXISlave#(8, addrWidth, 128, 0, 0, 0, 0, 0))
+         (AXI4_Slave#(8, addrWidth, 128, 0, 0, 0, 0, 0))
          provisos (Add#(wordAddrWidth, 4, addrWidth));
   RegFile#(Bit#(wordAddrWidth), Bit#(128)) ram <- mkRegFileFull;
   let dram <- mkModelDRAMGeneric(maxOutstandingReqs, ram);
@@ -214,7 +215,7 @@ endmodule
 // the advantage of being efficiently resettable to a predefined state.
 module mkModelDRAMAssoc#
          ( Integer maxOutstandingReqs )         // Max outstanding requests
-         (AXISlave#(8, addrWidth, 128, 0, 0, 0, 0, 0))
+         (AXI4_Slave#(8, addrWidth, 128, 0, 0, 0, 0, 0))
          provisos (Add#(wordAddrWidth, 4, addrWidth));
   RegFile#(Bit#(wordAddrWidth), Bit#(128)) ram <- mkRegFileAssoc;
   let dram <- mkModelDRAMGeneric(maxOutstandingReqs, ram);

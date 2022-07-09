@@ -1,4 +1,5 @@
 /* Copyright 2018 Jonathan Woodruff
+ * Copyright 2022 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -27,7 +28,7 @@
 
 import DefaultValue::*;
 import SourceSink::*;
-import AXI4::*;
+import BlueAXI4::*;
 
 interface AXITagShim#(
   numeric type id_,
@@ -38,23 +39,23 @@ interface AXITagShim#(
   numeric type buser_,
   numeric type aruser_,
   numeric type ruser_);
-  interface AXIMaster#(
+  interface AXI4_Master#(
     id_, addr_, data_, awuser_, wuser_, buser_, aruser_, ruser_
   ) master;
-  interface AXISlave#(
+  interface AXI4_Slave#(
     id_, addr_, TAdd#(data_,TDiv#(data_,128)), awuser_, wuser_, buser_, aruser_, ruser_
   ) slave;
 endinterface
 
 module mkDummyDUT(AXITagShim#(0,addrWidth,128,0,0,0,0,0));
-  AXIShim#(0, addrWidth, 129, 0, 0, 0, 0, 0) shimSlave  <- mkAXIShim;
-  AXIShim#(0, addrWidth, 128, 0, 0, 0, 0, 0) shimMaster <- mkAXIShim;
-  
+  AXI4_Shim#(0, addrWidth, 129, 0, 0, 0, 0, 0) shimSlave  <- mkAXI4Shim;
+  AXI4_Shim#(0, addrWidth, 128, 0, 0, 0, 0, 0) shimMaster <- mkAXI4Shim;
+
   rule getWrite;
-    let awreq <- shimSlave.master.aw.get;
+    let awreq <- get(shimSlave.master.aw);
     shimMaster.slave.aw.put(awreq);
-    let wreq <- shimSlave.master.w.get;
-    WFlit#(128, 0) noTagReq = WFlit{
+    let wreq <- get(shimSlave.master.w);
+    AXI4_WFlit#(128, 0) noTagReq = AXI4_WFlit{
       wdata: truncate(wreq.wdata),
       wstrb: truncate(wreq.wstrb),
       wlast: wreq.wlast,
@@ -64,18 +65,18 @@ module mkDummyDUT(AXITagShim#(0,addrWidth,128,0,0,0,0,0));
     $display("Write req ", fshow(wreq));
   endrule
   rule putBFlit;
-    let rsp <- shimMaster.slave.b.get;
+    let rsp <- get(shimMaster.slave.b);
     shimSlave.master.b.put(rsp);
     $display("Write rsp ", fshow(rsp));
   endrule
   rule getARFlit;
-    let req <- shimSlave.master.ar.get;
+    let req <- get(shimSlave.master.ar);
     shimMaster.slave.ar.put(req);
     $display("Read req ", fshow(req));
   endrule
   rule putRFlit;
-    let resp <- shimMaster.slave.r.get;
-    RFlit#(0, 129, 0) taggedResp = RFlit{
+    let resp <- get(shimMaster.slave.r);
+    AXI4_RFlit#(0, 129, 0) taggedResp = AXI4_RFlit{
       rid: resp.rid,
       rdata: {resp.rdata[16],resp.rdata},
       rresp: resp.rresp,
@@ -85,7 +86,7 @@ module mkDummyDUT(AXITagShim#(0,addrWidth,128,0,0,0,0,0));
     shimSlave.master.r.put(taggedResp);
     $display("Read rsp ", fshow(resp));
   endrule
-  
+
   interface slave  = shimSlave.slave;
   interface master = shimMaster.master;
 endmodule

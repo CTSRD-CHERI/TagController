@@ -1,6 +1,6 @@
 /* Copyright 2015 Matthew Naylor
  * Copyright 2018 Jonathan Woodruff
- * Copyright 2018 Alexandre Joannou
+ * Copyright 2018-2022 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -14,7 +14,7 @@
  * This software was developed by the University of Cambridge Computer
  * Laboratory as part of the Rigorous Engineering of Mainstream
  * Systems (REMS) project, funded by EPSRC grant EP/K008528/1.
- * 
+ *
  * This software was developed by SRI International and the University of
  * Cambridge Computer Laboratory (Department of Computer Science and
  * Technology) under DARPA contract HR0011-18-C-0016 ("ECATS"), as part of the
@@ -40,7 +40,6 @@
  */
 
 import DefaultValue :: *;
-import MEM          :: *;
 import StmtFSM      :: *;
 import RegFile      :: *;
 import FIFO         :: *;
@@ -50,8 +49,7 @@ import Vector       :: *;
 import BlueCheck    :: *;
 import Debug        :: *;
 import SourceSink   :: *;
-import AXI4_Types   :: *;
-import AXI_Helpers  :: *;
+import BlueAXI4     :: *;
 
 // This module has been developed for the purpose of testing the
 // (shared) memory sub-system.  It aims to provide a neat Bluespec
@@ -168,7 +166,7 @@ endinstance
 
 // Memory client module =======================================================
 
-module mkMemoryClient#(AXISlave#(idWidth, addrWidth, 128, 0, 1, 0, 0, 1) axiSlave) (MemoryClient)
+module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, 1, 0, 0, 1) axiSlave) (MemoryClient)
   provisos (Add#(a__, addrWidth, 64), Add#(b__, idWidth, 8));
 
   // Response FIFO
@@ -176,7 +174,7 @@ module mkMemoryClient#(AXISlave#(idWidth, addrWidth, 128, 0, 1, 0, 0, 1) axiSlav
 
   // FIFO storing details of outstanding loads/stores
   FIFOF#(OutstandingMemInstr) outstandingFIFO <- mkSizedFIFOF(4);
-  
+
   Reg#(Bit#(8)) idCount <- mkReg(0);
 
   // Address mapping
@@ -184,13 +182,13 @@ module mkMemoryClient#(AXISlave#(idWidth, addrWidth, 128, 0, 1, 0, 0, 1) axiSlav
 
   Bool nextIsLoad = outstandingFIFO.first.isLoad;
   // Fill response FIFO
-  rule handleWriteResponses (!nextIsLoad && axiSlave.b.canGet);
+  rule handleWriteResponses (!nextIsLoad && axiSlave.b.canPeek);
     outstandingFIFO.deq;
-    let b <- axiSlave.b.get();
+    let b <- get(axiSlave.b);
   endrule
-  rule handleReadResponses (nextIsLoad && axiSlave.r.canGet);
+  rule handleReadResponses (nextIsLoad && axiSlave.r.canPeek);
     outstandingFIFO.deq;
-    let r <- axiSlave.r.get();
+    let r <- get(axiSlave.r);
     responseFIFO.enq(DataResponse(toData(r.ruser, r.rdata)));
   endrule
 
@@ -198,7 +196,7 @@ module mkMemoryClient#(AXISlave#(idWidth, addrWidth, 128, 0, 1, 0, 0, 1) axiSlav
   function Action loadGeneric(Addr addr) =
     action
       Bit#(64) fullAddr = fromAddr(addr, addrMap);
-      ARFlit#(idWidth, addrWidth, 0) addrReq = defaultValue;
+      AXI4_ARFlit#(idWidth, addrWidth, 0) addrReq = defaultValue;
       addrReq.arid = truncate(idCount);
       idCount <= idCount + 1;
       addrReq.araddr = truncate(fullAddr);
@@ -215,14 +213,14 @@ module mkMemoryClient#(AXISlave#(idWidth, addrWidth, 128, 0, 1, 0, 0, 1) axiSlav
   function Action storeGeneric(Data data, Addr addr) =
     action
       Bit#(64) fullAddr = fromAddr(addr, addrMap);
-      AWFlit#(idWidth, addrWidth, 0) addrReq = defaultValue;
+      AXI4_AWFlit#(idWidth, addrWidth, 0) addrReq = defaultValue;
       addrReq.awid = truncate(idCount);
       idCount <= idCount + 1;
       addrReq.awcache = 4'b1011;
       addrReq.awaddr = truncate(fullAddr);
       axiSlave.aw.put(addrReq);
 
-      WFlit#(128, 1) dataReq = defaultValue;
+      AXI4_WFlit#(128, 1) dataReq = defaultValue;
       match {.t, .d} = fromData(data);
       dataReq.wuser = t;
       dataReq.wdata = d;
@@ -281,7 +279,7 @@ module mkMemoryClientGolden (MemoryClient);
   // Initialisation
   Reg#(Bool) init <- mkReg(True);
   Reg#(Addr) memAddr <- mkReg(minBound);
-  
+
   // Address mapping
   Reg#(AddrMap) addrMap <- mkRegU;
 
@@ -322,7 +320,7 @@ module mkMemoryClientGolden (MemoryClient);
   endmethod
 
   method Bool canGetResponse = responseFIFO.notEmpty;
-  
+
   //   // Set mapping from Addr values to physical address
   method Action setAddrMap(AddrMap map);
     addrMap <= map;

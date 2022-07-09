@@ -1,5 +1,5 @@
 #-
-# Copyright (c) 2018 Alexandre Joannou
+# Copyright (c) 2018-2022 Alexandre Joannou
 # Copyright (c) 2018 Matthew Naylor
 # Copyright (c) 2018 Jonathan Woodruff
 # All rights reserved.
@@ -29,9 +29,14 @@
 #
 
 BSC = bsc
+BLUESTUFFDIR ?= $(CURDIR)/BlueStuff
+BLUEAXI4DIR = $(BLUESTUFFDIR)/BlueAXI4
+BLUEAXI4DIRS = $(BLUEAXI4DIR):$(BLUEAXI4DIR)/AXI4:$(BLUEAXI4DIR)/AXI4Lite:$(BLUEAXI4DIR)/AXI4Stream:$(BLUEAXI4DIR)/BlueUnixBridges
+BLUEBASICSDIR = $(BLUESTUFFDIR)/BlueBasics
+BLUEUTILSDIR = $(BLUESTUFFDIR)/BlueUtils
+BLUESTUFF_DIRS = $(BLUESTUFFDIR):$(BLUEAXI4DIRS):$(BLUEBASICSDIR):$(BLUEUTILSDIR):$(BLUESTUFFDIR)/Stratix10ChipID
 
-BLUEUTILSDIR = ./BlueStuff
-BSVPATH = +:BlueStuff:Test:Test/bluecheck:BlueStuff/BlueBasics:BlueStuff/BlueUtils:BlueStuff/AXI:TagController:TagController/CacheCore
+BSVPATH = +:$(BLUESTUFF_DIRS):Test:Test/bluecheck:TagController:TagController/CacheCore
 
 BSCFLAGS = -p $(BSVPATH) -D MEM128 -D CAP128 -D BLUESIM
 CAPSIZE = 128
@@ -54,11 +59,9 @@ BSCFLAGS += -sched-dot
 BSCFLAGS += -show-range-conflict
 #BSCFLAGS += -show-rule-rel \* \*
 #BSCFLAGS += -steps-warn-interval n
-
-# Bluespec is not compatible with gcc > 4.9
-# This is actually problematic when using $test$plusargs
-CC = gcc-4.8
-CXX = g++-4.8
+BSCFLAGS += -D CheriMasterIDWidth=4
+BSCFLAGS += -D CheriTransactionIDWidth=4
+BSCFLAGS += +RTS -K33554432 -RTS
 
 TESTSDIR = Test
 SIMTESTSSRC = $(sort $(wildcard $(TESTSDIR)/*.bsv))
@@ -71,8 +74,10 @@ simTest: $(TESTSDIR)/TestMemTop.bsv TagController/TagTableStructure.bsv
 	$(BSC) -info-dir $(OUTPUTDIR)/$@-info -simdir $(SIMDIR) $(BSCFLAGS) -sim -g $(TOPMODULE) -u $<
 	CC=$(CC) CXX=$(CXX) $(BSC) -simdir $(SIMDIR) $(BSCFLAGS) -sim -e $(TOPMODULE) -o $(OUTPUTDIR)/$@
 
-TagController/TagTableStructure.bsv: tagsparams.py
-	python $^ -v -c $(CAPSIZE) -s $(TAGS_STRUCT:"%"=%) -a $(TAGS_ALIGN) -b TagController/TagTableStructure.bsv
+TagController/TagTableStructure.bsv: $(CURDIR)/tagsparams.py
+	@echo "INFO: Re-generating CHERI tag controller parameters"
+	$^ -v -c $(CAPSIZE) -s $(TAGS_STRUCT:"%"=%) -a $(TAGS_ALIGN) --data-store-base-addr 0xc0000000 -b $@ 0xbfff8000 0x17ffff000
+	@echo "INFO: Re-generated CHERI tag controller parameters"
 
 
 .PHONY: clean mrproper all

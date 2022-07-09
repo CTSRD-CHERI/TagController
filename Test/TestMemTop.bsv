@@ -1,4 +1,5 @@
 /* Copyright 2015 Matthew Naylor
+ * Copyright 2022 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -12,7 +13,7 @@
  * This software was developed by the University of Cambridge Computer
  * Laboratory as part of the Rigorous Engineering of Mainstream
  * Systems (REMS) project, funded by EPSRC grant EP/K008528/1.
- * 
+ *
  * This software was developed by SRI International and the University of
  * Cambridge Computer Laboratory (Department of Computer Science and
  * Technology) under DARPA contract HR0011-18-C-0016 ("ECATS"), as part of the
@@ -41,7 +42,7 @@ import Vector::*;
 import SourceSink::*;
 import Connectable::* ;
 import MemoryClient::*;
-import AXI4_Types::*;
+import BlueAXI4::*;
 import TestEquiv::*;
 import ModelDRAM :: *;
 import Clocks::*;
@@ -59,13 +60,13 @@ module [Module] mkTestMemTopSingle (Empty);
   // Make a reset signal for testing by iterative deepening
   Clock clk      <- exposeCurrentClock;
   MakeResetIfc r <- mkReset(0, True, clk);
-  
+
   // Implementation
   //AXITagShim#(0,32,128,0) dut <- mkDummyDUT(reset_by r.new_rst);
-  TagControllerAXI#(32,128) dut <- mkTagControllerAXI(reset_by r.new_rst);
+  TagControllerAXI#(4,32,128) dut <- mkTagControllerAXI(reset_by r.new_rst);
   // Instantiate DRAM model
   // (max oustanding requests = 4)
-  AXISlave#(8, 32, 128, 0, 0, 0, 0, 0) dram <- mkModelDRAMAssoc(4, reset_by r.new_rst);
+  AXI4_Slave#(8, 32, 128, 0, 0, 0, 0, 0) dram <- mkModelDRAMAssoc(4, reset_by r.new_rst);
   // Connect core to DRAM
   mkConnection(dut.master, dram, reset_by r.new_rst);
   // Create test client for DUT
@@ -83,7 +84,7 @@ module [Module] mkTestMemTopSingle (Empty);
   params.id.initialDepth = 4;
   params.id.testsPerDepth = 10000;
   params.numIterations = 12;
-  
+
   // Generate checker
   Stmt s <- mkModelChecker(checkSingle(dutClient, goldClient), params);
   mkAutoFSM(s);
