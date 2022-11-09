@@ -170,10 +170,11 @@ module mkSmallBag (Bag#(numElems, keyType, datType))
 endmodule
 
 interface FFBag#(numeric type numElems, type keyType, type datType, numeric type depth);
-  method Action          enq(keyType x, datType d);
-  method VnD#(datType)   first(keyType x);
-  method Action          deq(keyType x);
-  method Bool            full;
+  method Action                         enq(keyType x, datType d);
+  method VnD#(datType)                  first(keyType x);
+  method Action                         deq(keyType x);
+  method Bool                           full;
+  method VnD#(Entry#(keyType, datType)) searchFirsts(function Bool p (datType x));
 endinterface
 
 module mkFFBag (FFBag#(numElems, keyType, datType, depth))
@@ -218,6 +219,13 @@ module mkFFBag (FFBag#(numElems, keyType, datType, depth))
     let vndIdx = matchIdx(key);
     if (!vndIdx.v) panic($display("Panic!  Deq called on fifo ID that is not present"));
     fifos[vndIdx.d].deq;
+  endmethod
+
+  method VnD#(Entry#(keyType, datType)) searchFirsts(function Bool p (datType x));
+    function VnD#(Entry#(keyType, datType)) fst (FF#(Entry#(keyType, datType), depth) f) = VnD{v: f.notEmpty, d: f.first};
+    function pV (vnd) = vnd.v && p(vnd.d.dat);
+    let res = find (pV, map(fst, fifos));
+    return VnD {v: res matches tagged Valid ._ ? True : False, d: res.Valid.d};
   endmethod
 
   method Bool full = (any(isFull, fifos) || all_assigned);
