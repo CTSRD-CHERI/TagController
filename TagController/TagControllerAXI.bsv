@@ -44,6 +44,7 @@ import FIFO::*;
 import FIFOF::*;
 import Clocks :: *;
 import Debug::*;
+import Fabric_Defs::*;
 `ifdef PERFORMANCE_MONITORING
 import PerformanceMonitor :: *;
 import Vector :: *;
@@ -69,6 +70,94 @@ interface TagControllerAXI#(
 `endif
 endinterface
 
+module mkNullTagControllerAXI(TagControllerAXI#(id_, addr_,Wd_Data))
+  provisos (Add#(a__, id_, CheriTransactionIDWidth), Add#(c__, addr_, 64),Add#(b__, id_, 7));
+  let    clk <- exposeCurrentClock;
+  let newRst <- mkReset(0, True, clk);
+  TagControllerIfc tagCon <- mkTagController(reset_by newRst.new_rst);
+  //Workaround: these are being enqueued while full in Piccolo. Made the buffer size larger (32 from 4)
+  AXI4_Shim#(id_, addr_, Wd_Data, 0, CapsPerFlit, 0, 0, CapsPerFlit) shimSlave  <- mkAXI4ShimBypassFIFOF;
+  AXI4_Shim#(SizeOf#(ReqId), addr_, Wd_Data, 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimBypassFIFOF;
+  Reg#(Bool) reset_done <- mkReg(False);
+
+  rule propagateReset(!reset_done);
+      newRst.assertReset;
+      shimSlave.clear;
+      shimMaster.clear;
+      reset_done <= True;
+  endrule
+
+  rule connectAR;
+    let ar <- get(shimSlave.master.ar);
+    shimMaster.slave.ar.put(AXI4_ARFlit{
+      arid: zeroExtend(ar.arid),
+      araddr: ar.araddr,
+      arlen: ar.arlen,
+      arsize: ar.arsize,
+      arburst: INCR,
+      arlock: NORMAL,
+      arcache: fabric_default_arcache,
+      arprot: 0,
+      arqos: 0,
+      arregion: 0,
+      aruser: ?
+    });
+  endrule
+  rule connectAW;
+    let aw <- get(shimSlave.master.aw);
+    shimMaster.slave.aw.put(AXI4_AWFlit{
+      awid: zeroExtend(aw.awid),
+      awaddr: aw.awaddr,
+      awlen: aw.awlen,
+      awsize: aw.awsize,
+      awburst: INCR,
+      awlock: NORMAL,
+      awcache: fabric_default_awcache,
+      awprot: 0,
+      awqos: 0,
+      awregion: 0,
+      awuser: ?
+    });
+  endrule
+  rule connectB;
+    let b <- get(shimMaster.slave.b);
+    shimSlave.master.b.put(AXI4_BFlit{
+      bid: truncate(b.bid),
+      bresp: b.bresp,
+      buser: ?
+    });
+  endrule
+  rule connectR;
+    let r <- get(shimMaster.slave.r);
+    shimSlave.master.r.put(AXI4_RFlit{
+      rid: truncate(r.rid),
+      rdata: r.rdata,
+      rresp: r.rresp,
+      rlast: r.rlast,
+      ruser: ~0 // Fake it up; all tags are set.
+    });
+  endrule
+  rule connectW;
+    let w <- get(shimSlave.master.w);
+    shimMaster.slave.w.put(AXI4_WFlit{
+      wdata: w.wdata,
+      wstrb: w.wstrb,
+      wlast: w.wlast,
+      wuser: ? // Fake it up; drop tags.
+    });
+  endrule
+
+  method clear if (reset_done) = action
+    newRst.assertReset;
+    shimSlave.clear;
+    shimMaster.clear;
+  endaction;
+  interface slave  = shimSlave.slave;
+  interface master = shimMaster.master;
+`ifdef PERFORMANCE_MONITORING
+  method events = tagCon.events;
+`endif
+endmodule
 module mkTagControllerAXI(TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 8)))
   provisos (Add#(a__, id_, CheriTransactionIDWidth), Add#(c__, addr_, 64));
   let tmp <- mkDbgTagControllerAXI(Invalid);
