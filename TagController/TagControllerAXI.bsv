@@ -76,7 +76,7 @@ module mkNullTagControllerAXI(TagControllerAXI#(id_, addr_,Wd_Data))
   let newRst <- mkReset(0, True, clk);
   TagControllerIfc tagCon <- mkTagController(reset_by newRst.new_rst);
   //Workaround: these are being enqueued while full in Piccolo. Made the buffer size larger (32 from 4)
-  AXI4_Shim#(id_, addr_, Wd_Data, 0, CapsPerFlit, 0, 0, CapsPerFlit) shimSlave  <- mkAXI4ShimBypassFIFOF;
+  AXI4_Shim#(id_, addr_, Wd_Data, 0, CapsPerFlit, 0, 1, CapsPerFlit) shimSlave  <- mkAXI4ShimBypassFIFOF;
   AXI4_Shim#(SizeOf#(ReqId), addr_, Wd_Data, 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimBypassFIFOF;
   Reg#(Bool) reset_done <- mkReg(False);
 
