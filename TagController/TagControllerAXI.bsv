@@ -74,7 +74,6 @@ module mkNullTagControllerAXI(TagControllerAXI#(id_, addr_,Wd_Data))
   provisos (Add#(a__, id_, CheriTransactionIDWidth), Add#(c__, addr_, 64),Add#(b__, id_, 7));
   let    clk <- exposeCurrentClock;
   let newRst <- mkReset(0, True, clk);
-  TagControllerIfc tagCon <- mkTagController(reset_by newRst.new_rst);
   //Workaround: these are being enqueued while full in Piccolo. Made the buffer size larger (32 from 4)
   AXI4_Shim#(id_, addr_, Wd_Data, 0, CapsPerFlit, 0, 1, CapsPerFlit) shimSlave  <- mkAXI4ShimBypassFIFOF;
   AXI4_Shim#(SizeOf#(ReqId), addr_, Wd_Data, 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimBypassFIFOF;
@@ -155,7 +154,7 @@ module mkNullTagControllerAXI(TagControllerAXI#(id_, addr_,Wd_Data))
   interface slave  = shimSlave.slave;
   interface master = shimMaster.master;
 `ifdef PERFORMANCE_MONITORING
-  method events = tagCon.events;
+  method events = ?;
 `endif
 endmodule
 module mkTagControllerAXI(TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 8)))
