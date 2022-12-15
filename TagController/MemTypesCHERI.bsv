@@ -373,11 +373,11 @@ typedef UInt#(2) Bank;
   typedef 7 Indices; // Go conservative for multicore.
 `else
   `ifdef SMALL_TAG_CACHE
-    typedef 16384 TagCacheKilobytes; // Each way should fit in a RAMB36
+    typedef 16384 TagCacheBytes; // Each way should fit in a RAMB36
   `else
-    typedef 131072 TagCacheKilobytes; // Each way should fit in a URAM
+    typedef 131072 TagCacheBytes; // Each way should fit in a URAM
   `endif
-  typedef TLog#(TDiv#(TagCacheKilobytes, TMul#(CheriBusBytes,Banks))) Indices; // 128KiB XXX: Don't hardcode?
+  typedef TLog#(TDiv#(TagCacheBytes, TMul#(CheriBusBytes,Banks))) Indices;
 `endif
 Bit#(3) indicesMinus6 = fromInteger(valueOf(Indices) - 6);
 
