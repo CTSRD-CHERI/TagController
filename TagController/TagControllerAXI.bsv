@@ -71,7 +71,7 @@ interface TagControllerAXI#(
 endinterface
 
 module mkNullTagControllerAXI(TagControllerAXI#(id_, addr_,Wd_Data))
-  provisos (Add#(a__, id_, CheriTransactionIDWidth), Add#(c__, addr_, 64),Add#(b__, id_, 7));
+  provisos (Add#(a__, id_, CheriTransactionIDWidth), Add#(c__, addr_, 64),Add#(b__, id_, 8));
   let    clk <- exposeCurrentClock;
   let newRst <- mkReset(0, True, clk);
   //Workaround: these are being enqueued while full in Piccolo. Made the buffer size larger (32 from 4)

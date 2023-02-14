@@ -166,7 +166,7 @@ endinstance
 
 // Memory client module =======================================================
 
-module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, 1, 0, 0, 1) axiSlave) (MemoryClient)
+module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, 1, 0, 1, 1) axiSlave) (MemoryClient)
   provisos (Add#(a__, addrWidth, 64), Add#(b__, idWidth, 8));
 
   // Response FIFO
@@ -196,7 +196,7 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, 1, 0, 0, 1) axiSl
   function Action loadGeneric(Addr addr) =
     action
       Bit#(64) fullAddr = fromAddr(addr, addrMap);
-      AXI4_ARFlit#(idWidth, addrWidth, 0) addrReq = defaultValue;
+      AXI4_ARFlit#(idWidth, addrWidth, 1) addrReq = defaultValue;
       addrReq.arid = truncate(idCount);
       idCount <= idCount + 1;
       addrReq.araddr = truncate(fullAddr);

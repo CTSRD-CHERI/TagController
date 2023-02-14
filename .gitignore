@@ -1,0 +1,5 @@
+build/
+output/
+buildsteps.txt
+State.txt
+TagController/TagTableStructure.bsv
