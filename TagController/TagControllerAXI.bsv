@@ -203,23 +203,25 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,T
     end
     awreq.awaddr = awreq.awaddr + addrOffset;
     let mreq = axi2mem_req(Write(WriteReqFlit{aw: awreq, w: wreq}));
+    debug2("AXItagcontroller", $display("<time %0t TagController> AXI TagController write request ", $time, fshow(awreq), " - ", fshow(wreq)));
     tagCon.cache.request.put(mreq);
-    debug2("tagcontroller", $display("TagController write request ", fshow(awreq), " - ", fshow(wreq)));
   endrule
   // Ready if there is no partial write burst or if the read request is first.
   // The tag controller is currently unable to correctly handle a read in the
   // middle of a write burst; if fixed, the condition can be removed.
   rule passCacheRead(!writeBurst);
     let ar <- get(shimSlave.master.ar);
+    debug2("AXItagcontroller", $display("<time %0t TagController> AXI TagController read request ", $time, fshow(ar)));
     tagCon.cache.request.put(axi2mem_req(Read(ar)));
     //printDbg(dbg, $format("TagController read request ", fshow(ar)));
   endrule
   rule passCacheResponse;
     CheriMemResponse mr <- tagCon.cache.response.get();
     AXI_Helpers::MemRsp#(id_) ar = mem2axi_rsp(mr);
+    debug2("AXItagcontroller", $display("<time %0t TagController> AXI TagController response ", $time, fshow(ar)));
     case (ar) matches
-      tagged Write .w: shimSlave.master.b.put(w);
-      tagged Read  .r: shimSlave.master.r.put(r);
+    tagged Write .w: shimSlave.master.b.put(w);
+    tagged Read  .r: shimSlave.master.r.put(r);
     endcase
     //printDbg(dbg, $format("TagController response ", fshow(ar)));
   endrule
@@ -229,6 +231,7 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,T
   rule passMemoryRequest;
     CheriMemRequest mr <- tagCon.memory.request.get();
     DRAMReq#(SizeOf#(ReqId), addr_) ar = mem2axi_req(mr);
+    debug2("AXItagcontroller", $display("<time %0t TagController> AXI Memory request ", $time, fshow(ar)));
     case (ar) matches
       tagged Write .w: begin
         let newDoneSendingAW = doneSendingAW;
@@ -242,20 +245,19 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,T
       end
       tagged Read .r: shimMaster.slave.ar.put(r);
     endcase
-    debug2("tagcontroller", $display("Memory request ", fshow(ar)));
   endrule
   (* descending_urgency = "passMemoryResponseRead, passMemoryResponseWrite" *)
   rule passMemoryResponseWrite;
     let rsp <- get(shimMaster.slave.b);
     CheriMemResponse mr = axi2mem_rsp(Write(rsp));
+    debug2("AXItagcontroller", $display("<time %0t TagController> AXI Memory write response ", $time, fshow(rsp)));
     tagCon.memory.response.put(mr);
-    debug2("tagcontroller", $display("Memory write response ", fshow(rsp)));
   endrule
   rule passMemoryResponseRead;
     let rsp <- get(shimMaster.slave.r);
     CheriMemResponse mr = axi2mem_rsp(Read(rsp));
+    debug2("AXItagcontroller", $display("<time %0t TagController> AXI Memory read response ", $time, fshow(rsp)));
     tagCon.memory.response.put(mr);
-    debug2("tagcontroller", $display("Memory read response ", fshow(rsp)));
   endrule
 
   method clear if (reset_done) = action

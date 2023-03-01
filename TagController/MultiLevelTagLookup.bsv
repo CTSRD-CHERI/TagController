@@ -760,7 +760,7 @@ module mkMultiLevelTagLookup #(
   /////////////////////////////////////////////////////////////////////////////
 
   interface Master memory;
-    interface request  = toCheckedGet(ff2fifof(mReqs));
+    interface request  = toUGCheckedGet(ff2fifof(mReqs));
     interface response = toCheckedPut(ff2fifof(mRsps));
   endinterface
 

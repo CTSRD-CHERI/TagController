@@ -116,6 +116,11 @@ typeclass ToCheckedGet#(type a, type b)
     function CheckedGet#(b) toCheckedGet (a val);
 endtypeclass
 
+typeclass ToUGCheckedGet#(type a, type b)
+    dependencies(a determines b);
+    function CheckedGet#(b) toUGCheckedGet (a val);
+endtypeclass
+
 instance ToCheckedGet#(CheckedGet#(data_t), data_t);
     function CheckedGet#(data_t) toCheckedGet (CheckedGet#(data_t) cg) = cg;
 endinstance
@@ -128,6 +133,20 @@ instance ToCheckedGet#(FIFOF#(data_t), data_t);
               return f.first;
             endmethod
             method ActionValue#(data_t) get if (f.notEmpty);
+              f.deq; 
+              return f.first;
+            endmethod
+        endinterface;
+endinstance
+
+instance ToUGCheckedGet#(FIFOF#(data_t), data_t);
+    function CheckedGet#(data_t) toUGCheckedGet (FIFOF#(data_t) f) =
+        interface CheckedGet#(data_t);
+            method canGet = f.notEmpty;
+            method data_t peek;  // PREVENTS progress when addresses not covered by tag table
+              return f.first;
+            endmethod
+            method ActionValue#(data_t) get;
               f.deq; 
               return f.first;
             endmethod
