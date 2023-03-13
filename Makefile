@@ -36,7 +36,7 @@ BLUEBASICSDIR = $(BLUESTUFFDIR)/BlueBasics
 BLUEUTILSDIR = $(BLUESTUFFDIR)/BlueUtils
 BLUESTUFF_DIRS = $(BLUESTUFFDIR):$(BLUEAXI4DIRS):$(BLUEBASICSDIR):$(BLUEUTILSDIR):$(BLUESTUFFDIR)/Stratix10ChipID
 
-BSVPATH = +:$(BLUESTUFF_DIRS):Test:Test/bluecheck:TagController:TagController/CacheCore
+BSVPATH = +:$(BLUESTUFF_DIRS):Test:Test/bluecheck:TagController:TagController/CacheCore:Benchmark
 
 BSCFLAGS = -p $(BSVPATH) -D MEM128 -D CAP128 -D BLUESIM
 CAPSIZE = 128
@@ -49,7 +49,6 @@ BDIR = $(BUILDDIR)/bdir
 SIMDIR = $(BUILDDIR)/simdir
 
 OUTPUTDIR = output
-TOPMODULE = mkTestMemTop
 
 BSCFLAGS += -bdir $(BDIR)
 BSCFLAGS += -simdir $(SIMDIR)
@@ -68,12 +67,29 @@ TESTSDIR = Test
 SIMTESTSSRC = $(sort $(wildcard $(TESTSDIR)/*.bsv))
 SIMTESTS = $(addprefix sim, $(notdir $(basename $(SIMTESTSSRC))))
 
+BENCHMARKDIR = Benchmark
+
 all: simTest
 
+
+SIMTEST_TOPMODULE = mkTestMemTop
 simTest: $(TESTSDIR)/TestMemTop.bsv TagController/TagTableStructure.bsv
 	mkdir -p $(OUTPUTDIR)/$@-info $(BDIR) $(SIMDIR)
-	$(BSC) -info-dir $(OUTPUTDIR)/$@-info -simdir $(SIMDIR) $(BSCFLAGS) -sim -g $(TOPMODULE) -u $<
-	CC=$(CC) CXX=$(CXX) $(BSC) -simdir $(SIMDIR) $(BSCFLAGS) -sim -e $(TOPMODULE) -o $(OUTPUTDIR)/$@
+	$(BSC) -info-dir $(OUTPUTDIR)/$@-info -simdir $(SIMDIR) $(BSCFLAGS) -sim -g $(SIMTEST_TOPMODULE) -u $<
+	CC=$(CC) CXX=$(CXX) $(BSC) -simdir $(SIMDIR) $(BSCFLAGS) -sim -e $(SIMTEST_TOPMODULE) -o $(OUTPUTDIR)/$@
+
+TOFILE_TOPMODULE = mkWriteTest
+tofile: $(BENCHMARKDIR)/RunRequestsFromFile.bsv TagController/TagTableStructure.bsv
+	mkdir -p $(OUTPUTDIR)/$@-info $(BDIR) $(SIMDIR)
+	$(BSC) -info-dir $(OUTPUTDIR)/$@-info -simdir $(SIMDIR) $(BSCFLAGS) -sim -g $(TOFILE_TOPMODULE) -u $<
+	CC=$(CC) CXX=$(CXX) $(BSC) -simdir $(SIMDIR) $(BSCFLAGS) -sim -e $(TOFILE_TOPMODULE) -o $(OUTPUTDIR)/$@
+
+
+FROMFILE_TOPMODULE = mkRequestsFromFile
+fromfile: $(BENCHMARKDIR)/RunRequestsFromFile.bsv TagController/TagTableStructure.bsv
+	mkdir -p $(OUTPUTDIR)/$@-info $(BDIR) $(SIMDIR)
+	$(BSC) -info-dir $(OUTPUTDIR)/$@-info -simdir $(SIMDIR) $(BSCFLAGS) -sim -g $(FROMFILE_TOPMODULE) -u $<
+	CC=$(CC) CXX=$(CXX) $(BSC) -simdir $(SIMDIR) $(BSCFLAGS) -sim -e $(FROMFILE_TOPMODULE) -o $(OUTPUTDIR)/$@
 
 TagController/TagTableStructure.bsv: $(CURDIR)/tagsparams.py
 	@echo "INFO: Re-generating CHERI tag controller parameters"
