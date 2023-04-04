@@ -85,13 +85,13 @@ module mkModelDRAMGeneric#
       aw: aw,
       w: w
     }));
-    debug2("dram", $display("fillPreReqFifoWrite ", fshow(aw), fshow(w)));
+    debug2("dram", $display("<time %0t DRAM> fillPreReqFifoWrite ", $time, fshow(aw), fshow(w)));
   endrule
 
   rule fillPreReqFifoRead;
     let ar <- get(shim.master.ar);
     preReqFifo.enq(tagged Read ar);
-    debug2("dram", $display("fillPreReqFifoRead ", fshow(ar)));
+    debug2("dram", $display("<time %0t DRAM> fillPreReqFifoRead ", $time, fshow(ar)));
   endrule
 
   // Unroll burst read requests
@@ -114,7 +114,7 @@ module mkModelDRAMGeneric#
             last = True;
             burstReadCount <= 0;
             preReqFifo.deq;
-            debug2("dram", $display("unrollBurstReads preReqFifo.deq"));
+            debug2("dram", $display("<time %0t DRAM> unrollBurstReads preReqFifo.deq", $time));
           end
         else
           burstReadCount <= burstReadCount+1;
@@ -124,7 +124,7 @@ module mkModelDRAMGeneric#
 
     // Forward request to next stage
     reqFifo.enq(tuple2(req, last));
-    debug2("dram", $display("unrollBurstReads ", fshow(req)));
+    debug2("dram", $display("<time %0t DRAM> unrollBurstReads ", $time, fshow(req)));
   endrule
 
   // Produce responses
@@ -159,7 +159,7 @@ module mkModelDRAMGeneric#
             if (write.w.wstrb[i]==1'b1)
               bytes[i] = newBytes[i];
           ram.upd(wordAddr, pack(bytes));
-          debug2("dram", $display("Wrote %x to address %x in RAM", bytes, wordAddr));
+          debug2("dram", $display("<time %0t DRAM> Wrote %x to address %x in RAM", $time, bytes, wordAddr));
           resp = Write(AXI4_BFlit{
             bid: write.aw.awid,
             bresp: OKAY,
@@ -171,7 +171,7 @@ module mkModelDRAMGeneric#
       // Read =================================================================
       tagged Read .read:
         begin
-          debug2("dram", $display("Read %x from address %x in RAM", data, wordAddr));
+          debug2("dram", $display("<time %0t DRAM> Read %x from address %x in RAM", $time, data, wordAddr));
           resp = tagged Read AXI4_RFlit{
             rid: read.arid,
             rdata: data,
@@ -185,7 +185,7 @@ module mkModelDRAMGeneric#
 
     // Respond
     if (validResponse) respFifo.enq(resp);
-    debug2("dram", $display("produceFinalResponses validResponse: %d ", validResponse, fshow(resp)));
+    debug2("dram", $display("<time %0t DRAM> produceFinalResponses validResponse: %d ", $time, validResponse, fshow(resp)));
   endrule
 
   rule drainRespFifo;
@@ -194,7 +194,7 @@ module mkModelDRAMGeneric#
       tagged Read .r: shim.master.r.put(r);
     endcase
     respFifo.deq();
-    debug2("dram", $display("drainRespFifo ", fshow(respFifo.first)));
+    debug2("dram", $display("<time %0t DRAM> drainRespFifo ", $time, fshow(respFifo.first)));
   endrule
 
   // Slave interface
