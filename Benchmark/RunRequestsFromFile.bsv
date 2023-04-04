@@ -214,8 +214,15 @@ module mkFileToAXI#(
     //       would be better to match responses with ids
     FIFOF#(FileMemoryOp) outstandingFIFO <- mkSizedFIFOF(16);
 
+    Reg#(Bit#(64)) simulationTime <- mkReg(0);
+
+    rule updateTime;
+        let t <- $time;
+        simulationTime <= t;
+    endrule
+
     // Functions
-    rule issueIntruction (sourceFileOpsFIFO.notEmpty);
+    rule issueIntruction (sourceFileOpsFIFO.notEmpty && simulationTime > 10000);
         let next_op = sourceFileOpsFIFO.first;
         if (next_op.op_type == 0)
         begin

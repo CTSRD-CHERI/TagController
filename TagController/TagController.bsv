@@ -91,7 +91,11 @@ typedef struct {
 typedef TLog#(TDiv#(CapWidth, CheriDataWidth)) LogFlitsPerCap;
 typedef TMax#(TDiv#(CheriDataWidth,CapWidth), 1) CapsPerFlit;
 typedef enum {TagLookupReq, StdReq} MemReqType deriving (FShow, Bits, Eq);
-typedef 4 InFlight;
+
+// RUNTYPE: in flight operations
+// typedef 4 InFlight;
+typedef 10 InFlight;
+
 typedef 8 MaxBurstLength;
 typedef Bit#(TLog#(MaxBurstLength)) Frame;
 typedef Bit#(8) ReqIdCount;
@@ -128,6 +132,8 @@ module mkTagController(TagControllerIfc);
 
   // tag lookup module
   //TagLookupIfc tagLookup <- mkTagLookup(mID);
+
+  // RUNTYPE: Null lookups
   TagLookupIfc tagLookup <- mkMultiLevelTagLookup(
                                 mID,
                                 unpack(fromInteger(table_end_addr)),
@@ -135,6 +141,8 @@ module mkTagController(TagControllerIfc);
                                 unpack(fromInteger(table_start_addr)),
                                 covered_mem_size
                             );
+  // TagLookupIfc tagLookup <- mkNullMultiLevelTagLookup();
+
   // lookup responses fifo
   // Size of these structures must be >= number of outstandring requests from the L2.
   FFBag#(InFlight, ReqId, LookupRspInfo, InFlight) lookupRsp <- mkFFBag;

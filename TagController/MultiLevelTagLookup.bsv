@@ -389,6 +389,10 @@ module mkMultiLevelTagLookup #(
   endaction;
 
   rule feedTagCache;
+    debug2("taglookup",
+      $display("<time %0t TagLookup> Sending request to cache:  ",
+      $time, fshow(tagCacheReq.first())
+    ));
     tagCache.put(tagCacheReq.first());
     tagCacheReq.deq();
   endrule
@@ -774,5 +778,102 @@ module mkMultiLevelTagLookup #(
   `elsif PERFORMANCE_MONITORING
   method events = tagCache.events;
   `endif
+
+endmodule
+
+
+
+
+// NULL tag lookup
+///////////////////////////////////////////////////////////////////////////////
+
+/*
+  descending_urgency = "initialise,drainMemRsp,readTagState,setTagState"
+*/
+//XXX(* synthesize *) can't synthesize with polymorphic interface (=> parameter keyword useless...)
+module mkNullMultiLevelTagLookup (TagLookupIfc);
+
+  
+  // components instanciations
+  /////////////////////////////////////////////////////////////////////////////
+
+  // pending read requests fifo covered or not
+  // FF#(Bool,1) readReqs <- mkLFF1();
+  FF#(Bool,2) readReqs <- mkUGFFDebug("TagLookup_readReqs");
+  // lookup response fifo
+  FF#(LineTags,2) lookupRsp      <- mkUGFFDebug("TagLookup_lookupRsp");
+
+  // memory requests fifo
+  FF#(CheriMemRequest, 8)  mReqs <-  mkUGFFDebug("TagLookup_mReqs");
+  // memory response fifo
+  FF#(CheriMemResponse, 2) mRsps <- mkUGFFDebug("TagLookup_mRsps");
+ 
+  // module Slave interface
+  /////////////////////////////////////////////////////////////////////////////
+
+  interface Slave cache;
+
+    // lookup Slave request interface
+    //////////////////////////////////////////////////////
+    interface CheckedPut request;
+      method Bool canPut() = readReqs.notFull() && lookupRsp.notFull();
+      // tag request
+      //////////////////////////////
+      method Action put(CheriTagRequest req) if (readReqs.notFull() && lookupRsp.notFull());
+        debug2("taglookup",
+          $display(
+            "<time %0t TagLookup> received request ",
+            $time, fshow(req)
+        ));
+        case (req.operation) matches
+          // when it's a read
+          //////////////////////////////
+          tagged Read: begin
+            readReqs.enq(True);
+            lookupRsp.enq(unpack(0));
+          // ignore other types of requests
+          end
+          default: begin
+          end
+        endcase
+      endmethod
+    endinterface
+
+    // lookup Slave response interface
+    //////////////////////////////////////////////////////
+    interface CheckedGet response;
+      method Bool canGet() = !readReqs.first() || lookupRsp.notEmpty();
+      method CheriTagResponse peek() = CheriTagResponse{tags: (readReqs.first()) ?
+          tagged Covered lookupRsp.first():
+          tagged Uncovered};
+      method ActionValue#(CheriTagResponse) get() if (!readReqs.first() || lookupRsp.notEmpty());
+        // put response together
+        CheriTagResponse tr = CheriTagResponse{tags: tagged Uncovered};
+        // in case of covered request, dequeue the lookup response
+        if (readReqs.first()) begin
+          tr = CheriTagResponse{tags: tagged Covered lookupRsp.first()};
+          lookupRsp.deq();
+        end
+        // dequeue the pending request
+        readReqs.deq();
+        // debug msg and return response
+        debug2("taglookup",
+          $display(
+            "<time %0t TagLookup> got valid lookup response ",
+            $time, fshow(tr)
+        ));
+        return tr;
+      endmethod
+    endinterface
+
+  endinterface
+
+  // module Master interface
+  /////////////////////////////////////////////////////////////////////////////
+
+  interface Master memory;
+    interface request  = toUGCheckedGet(ff2fifof(mReqs));
+    interface response = toCheckedPut(ff2fifof(mRsps));
+  endinterface
 
 endmodule
