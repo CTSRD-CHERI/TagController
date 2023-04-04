@@ -70,13 +70,17 @@ interface TagControllerAXI#(
 `endif
 endinterface
 
-module mkNullTagControllerAXI(TagControllerAXI#(id_, addr_,Wd_Data))
+// module mkNullTagControllerAXI(TagControllerAXI#(id_, addr_,Wd_Data))
+module mkNullTagControllerAXI(TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 8)))
   provisos (Add#(a__, id_, CheriTransactionIDWidth), Add#(c__, addr_, 64),Add#(b__, id_, 8));
   let    clk <- exposeCurrentClock;
   let newRst <- mkReset(0, True, clk);
   //Workaround: these are being enqueued while full in Piccolo. Made the buffer size larger (32 from 4)
-  AXI4_Shim#(id_, addr_, Wd_Data, 0, CapsPerFlit, 0, 1, CapsPerFlit) shimSlave  <- mkAXI4ShimBypassFIFOF;
-  AXI4_Shim#(SizeOf#(ReqId), addr_, Wd_Data, 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimBypassFIFOF;
+  // AXI4_Shim#(id_, addr_, Wd_Data, 0, CapsPerFlit, 0, 1, CapsPerFlit) shimSlave  <- mkAXI4ShimBypassFIFOF;
+  // AXI4_Shim#(SizeOf#(ReqId), addr_, Wd_Data, 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimBypassFIFOF;
+  AXI4_Shim#(id_, addr_, TMul#(CheriBusBytes, 8), 0, CapsPerFlit, 0, 1, CapsPerFlit) shimSlave  <- mkAXI4ShimBypassFIFOF;//mkAXI4ShimFF;
+  AXI4_Shim#(SizeOf#(ReqId), addr_, TMul#(CheriBusBytes, 8), 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimBypassFIFOF;
+  
   Reg#(Bool) reset_done <- mkReg(False);
 
   rule propagateReset(!reset_done);

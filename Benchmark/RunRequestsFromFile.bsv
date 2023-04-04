@@ -11,7 +11,9 @@ import Debug::*;
 
 typedef 64 AddressLength;
 typedef 128 CacheLineLength;
-typedef 16 LineStride;
+
+// `define LINE_STRIDE 10000024
+`define LINE_STRIDE 128
 
 typedef struct {
   Bit#(8) op_type; // 0 if Read, 1 if Write
@@ -29,7 +31,7 @@ module mkWriteTest (Empty);
     Reg#(File) file_handler <- mkReg(?);
 
     Reg#(Bool) opened <- mkReg(False);
-    Reg#(Bit#(9)) ops_left_to_write <- mkReg(256);
+    Reg#(Bit#(32)) ops_left_to_write <- mkReg(10000);
     Reg#(Bool) finished <- mkReg(False);
 
     Reg#(Bit#(AddressLength)) curr_addr <- mkReg(0);
@@ -49,7 +51,7 @@ module mkWriteTest (Empty);
         $display("Writing to file: ", fshow(next_op));
         $fwriteh(file_handler, next_op);
         ops_left_to_write <= ops_left_to_write - 1;
-        curr_addr <= curr_addr + 16;
+        curr_addr <= curr_addr + `LINE_STRIDE;
         if (ops_left_to_write == 0)
         begin
             finished <= True;
@@ -125,7 +127,9 @@ module mkRequestsFromFile (Empty);
     MakeResetIfc r <- mkReset(0, True, clk);
 
     // 4 bit id width
+    // RUNTYPE: ALL NULL
     TagControllerAXI#(4,AddressLength,CacheLineLength) tagcontroller <- mkTagControllerAXI(reset_by r.new_rst);
+    // TagControllerAXI#(4,AddressLength,CacheLineLength) tagcontroller <- mkNullTagControllerAXI(reset_by r.new_rst);
     
     AXI4_Slave#(
         8, AddressLength, CacheLineLength, 0, 0, 0, 0, 0
