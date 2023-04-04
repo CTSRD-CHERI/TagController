@@ -161,8 +161,8 @@ module mkTagController(TagControllerIfc);
   // drain tag lookup responses out of the tag lookup engine
   rule getTagLookupResponse;
     CheriTagResponse tags <- tagLookup.cache.response.get();
-    debug2("tagcontroller", $display("<time %0t TagController> Completed lookup response: ", $time, fshow(tags)));
     LookupReqInfo lookup = pendingLookups.first;
+    debug2("tagcontroller", $display("<time %0t TagController> Completed lookup response: ", $time, fshow(lookup.id), " - ", fshow(LookupRspInfo{rsp: tags, tagOnlyRead: lookup.tagOnlyRead})));
     lookupRsp.enq(lookup.id, LookupRspInfo{rsp: tags, tagOnlyRead: lookup.tagOnlyRead});
     pendingLookups.deq;
   endrule
@@ -221,12 +221,19 @@ module mkTagController(TagControllerIfc);
   Bool memoryCanGet = mReqBurst.notEmpty || tagLookup.memory.request.canGet;
 
   // Comment in when debugging flow control.
-/*  rule debug;
-    debug2("tagcontroller", $display("<time %0t TagController> slvCanPut:%x tagLookup.cache.request.canPut(1):%x tagLookup.memory.request.canGet(0):%x mReqs.notFull(1):%x",
-                                     $time, slvCanPut, tagLookup.cache.request.canPut(), tagLookup.memory.request.canGet(), mReqs.notFull()));
-    debug2("tagcontroller", $display("<time %0t TagController> slvCanGet:%x tagRsp.v(1):%x untrackedResponse(1):%x",
-                                     $time, slvCanGet, tagRsp.v, untrackedResponse));
-  endrule*/
+  rule debug;
+    // debug2("tagcontroller", $display("<time %0t TagController> slvCanPut:%x tagLookup.cache.request.canPut(1):%x tagLookup.memory.request.canGet(0):%x mReqs.notFull(1):%x",
+    //                                  $time, slvCanPut, tagLookup.cache.request.canPut(), tagLookup.memory.request.canGet(), mReqs.notFull()));
+    // debug2("tagcontroller", $display("<time %0t TagController> slvCanGet:%x tagRsp.v(1):%x untrackedResponse(1):%x",
+    //                                  $time, slvCanGet, tagRsp.v, untrackedResponse));
+    debug2("tagcontroller", $display("<time %0t TagController> DEBUG: ", $time, 
+      // "memoryCanGet: ", fshow(memoryCanGet), " | ",
+      // "memoryGetPeek: ", fshow(mReqs.first), " | ",
+      "taglookup cache request canput: ", fshow(tagLookup.cache.request.canPut()), " | ",
+      "taglookup cache response canget: ", fshow(tagLookup.cache.response.canGet()), " | ",
+      ""
+    ));
+  endrule
 
   // module Slave interface
   /////////////////////////////////////////////////////////////////////////////
@@ -252,6 +259,7 @@ module mkTagController(TagControllerIfc);
               last: wop.last,
               length: wop.length
           };
+          debug2("tagcontroller", $display("<time %0t TagController> Nullified request as it was for the tag table: ", $time, fshow(req)));
         end
         ReqId id = getReqId(req);
         Bool tagOnlyRead = False;
@@ -261,6 +269,7 @@ module mkTagController(TagControllerIfc);
         // We only enqueue request to DRAM if this is not a tagOnlyRead
         Bool canDoEnq = !tagOnlyRead;
         if (canDoEnq) begin
+            debug2("tagcontroller", $display("<time %0t TagController> Enqueuing request to mReqs: ", $time, fshow(req)));
             mReqs.enq(req);
             // Signal that the next burst in mReqs can be forwarded downstream.
             // FIXME: If we receive a read request in the middle of a write
@@ -268,12 +277,17 @@ module mkTagController(TagControllerIfc);
             // followed by the read, early, and risk a tag lookup write request
             // being interleaved with it. Currently TagControllerAXI will avoid
             // interleaving the two to work around this limitation.
-            if (getLastField(req)) mReqBurst.enq(?);
+            if (getLastField(req)) begin
+              debug2("tagcontroller", $display("<time %0t TagController> This is the last in the burst, enqueueing ? to mReqBurst: ", $time));
+              mReqBurst.enq(?);
+            end
         end
         if (req.operation matches tagged Read .rop) begin
           // Stash the frame of the incoming address so that we can select the correct tags for the response.
           CheriCapAddress capAddr = unpack(pack(req.addr));
-          addrFrame.enq(id, AddrFrame{tagOnlyRead: rop.tagOnlyRead, bank: truncate(capAddr.capNumber), masterID: req.masterID, transactionID: req.transactionID});
+          AddrFrame thisAddrFrame = AddrFrame{tagOnlyRead: rop.tagOnlyRead, bank: truncate(capAddr.capNumber), masterID: req.masterID, transactionID: req.transactionID};
+          debug2("tagcontroller", $display("<time %0t TagController> Stashing frame into addrFrame: ", $time, " ", fshow(id), ": ", fshow(thisAddrFrame)));
+          addrFrame.enq(id, thisAddrFrame);
         end
         if (req.operation matches tagged Write .wop) begin
             CheriTagWrite newTagWrite = tagWrite;
@@ -290,13 +304,15 @@ module mkTagController(TagControllerIfc);
             end
             if (getLastField(req)) begin
               tagReq.operation = tagged Write newTagWrite;
+              debug2("tagcontroller", $display("<time %0t TagController> Injecting Write Lookup: ", $time, fshow(tagReq)));
               tagLookup.cache.request.put(tagReq);
-              debug2("tagcontroller", $display("<time %0t TagController> Injected Write Lookup: ", $time, fshow(tagReq)));
               newTagWrite = unpack(0);
             end
             tagWrite <= newTagWrite;
         end else begin
+          debug2("tagcontroller", $display("<time %0t TagController> Sending read request to tagLookup: ", $time, " ", fshow(tagReq)));    
           tagLookup.cache.request.put(tagReq);
+          debug2("tagcontroller", $display("<time %0t TagController> Enqueueing lookup request info into pendingLookups: ", $time, " ", fshow(LookupReqInfo{id: id, tagOnlyRead: tagOnlyRead})));    
           pendingLookups.enq(LookupReqInfo{id: id, tagOnlyRead: tagOnlyRead});
         end
       endmethod
@@ -336,11 +352,11 @@ module mkTagController(TagControllerIfc);
       method CheriMemRequest peek() = memoryGetPeek;
       method ActionValue#(CheriMemRequest) get() if (memoryCanGet);
         if (mReqBurst.notEmpty) begin
-          mReqs.deq();
           if (getLastField(mReqs.first)) mReqBurst.deq();
+          mReqs.deq();
         end
         else let unused <- tagLookup.memory.request.get();
-        debug2("tagcontroller", $display("<time %0t TagController> request to memory (ForwardingMemoryRequest:%d): ", $time, mReqBurst.notEmpty, " ", fshow(memoryGetPeek)));
+        debug2("tagcontroller", $display("<time %0t TagController> Sending request to memory (ForwardingMemoryRequest:%d): ", $time, mReqBurst.notEmpty, " ", fshow(memoryGetPeek)));
         return memoryGetPeek;
       endmethod
     endinterface
@@ -352,11 +368,11 @@ module mkTagController(TagControllerIfc);
         MemReqType reqType = (r.masterID == mID) ? TagLookupReq : StdReq;
         debug2("tagcontroller", $display("<time %0t TagController> response from memory: ", $time, fshow(reqType), " ", fshow(r)));
         if (reqType == TagLookupReq) begin
-          tagLookup.memory.response.put(r);
           debug2("tagcontroller", $display("<time %0t TagController> tag response", $time));
+          tagLookup.memory.response.put(r);
         end else begin
-          mRsps.enq(r);
           debug2("tagcontroller", $display("<time %0t TagController> memory response", $time));
+          mRsps.enq(r);
         end
       endmethod
     endinterface
