@@ -206,7 +206,12 @@ module mkMultiLevelTagLookup #(
   // As we enq and deq in the same rule, more than one would wedge the state machine.
   //FF#(CheriMemResponse, 2) tagCacheRsps <- mkUGFF();
   FF#(Bool, 4)             useNextRsp <- mkUGFFDebug("TagLookup_useNextRsp");
+
+  // RUNTYPE: bypass tagcachereq
   FF#(CheriMemRequest, 1) tagCacheReq <- mkFF();
+  // FF#(CheriMemRequest, 1) tagCacheReq <- mkFFBypass();
+  
+  
   PulseWire                    getReq <- mkPulseWire();
   // tag cache CacheCore module
   CacheCore#(4, TSub#(Indices,2), 1)  tagCache <- mkCacheCore(
@@ -363,9 +368,9 @@ module mkMultiLevelTagLookup #(
     State newState,
     Bool useRsp
     ) = action
-    debug2("taglookup",
-      $display("<time %0t TagLookup> table structure -", $time, fshow(tableDesc)
-    ));
+    // debug2("taglookup",
+    //   $display("<time %0t TagLookup> table structure -", $time, fshow(tableDesc)
+    // ));
     case (mmr) matches
       tagged Valid .mr: begin
         // send the tag cache request and increment the transaction number
@@ -388,7 +393,7 @@ module mkMultiLevelTagLookup #(
     ));
   endaction;
 
-  rule feedTagCache;
+  rule feedTagCache (tagCache.canPut);
     debug2("taglookup",
       $display("<time %0t TagLookup> Sending request to cache:  ",
       $time, fshow(tagCacheReq.first())
@@ -463,6 +468,19 @@ module mkMultiLevelTagLookup #(
 
   // Main lookup rule
   /////////////////////////////////////////////////////////////////////////////
+  rule debug;
+    debug2("taglookup",
+      $display(
+      "<time %0t TagLookup> DEBUG ", $time, 
+      "state: ", fshow(state), " | ",
+      "useNextRsp.notFull:", fshow(useNextRsp.notFull), " | ",
+      "tagCacheReq.remaining: ", fshow(tagCacheReq.remaining), " | ",
+      ""
+    ));
+  endrule
+
+  // As this calls doTransition, it requires that tagCacheReq is not full!
+  // Fixable by simply making tagCacheReq >= 2
   rule doLookup (state != Idle && state != Init && useNextRsp.notFull);
     // Common signals
     ///////////////////////////////////////////////////////////////////////////

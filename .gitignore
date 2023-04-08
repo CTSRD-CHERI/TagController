@@ -1,5 +1,9 @@
 build/
 output/
+Logs/
 buildsteps.txt
 State.txt
 TagController/TagTableStructure.bsv
+*.dat
+*.png
+*.pdf

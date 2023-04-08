@@ -770,7 +770,8 @@ module mkCacheCore#(Integer cacheId,
     CheriMemRequest memReq = req; // Request to forward to memory.
     Bool enqRetryReq = False;
     
-    if (!noReqs) debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Commit:%x, Serving request ", $time, cacheId, commit, fshow(ct), fshow(dataRead), fshow(tagsRead)));
+    if (!noReqs) debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Commit:%x, Serving request: ", $time, cacheId, commit, fshow(ct), " | tag read: ", fshow(tag)));
+    // if (!noReqs) debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Commit:%x, Serving request ", $time, cacheId, commit, fshow(ct), fshow(dataRead), fshow(tagsRead)));
 
     `ifdef MONITOR_EVENTS
       EventsCacheCore events = unpack(0);
@@ -1001,7 +1002,7 @@ module mkCacheCore#(Integer cacheId,
                                                                     write: readRespForWrite
                                                                 };
               newReadReqReg.d = newRec; // In order to update the tag record.
-              debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Updating %x in ID table", $time, cacheId, memRspId, fshow(newRec)));
+              debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Updating %x in ID table ", $time, cacheId, memRspId, fshow(newRec)));
             end else if (!readResponse) begin
               //respValid = True;
               debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> cached and store conditional ", $time, cacheId, fshow(getRespId(cacheResp))));
@@ -1600,8 +1601,14 @@ module mkCacheCore#(Integer cacheId,
     if (respValid) debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Setting valid response ", $time, cacheId, fshow(getRespId(cacheResp))));
   endrule
   
+  // These conditions tell us whether a new request will certainly be caught if it is inserted.  
+  Bool putCondition = (!orderer.reqsFull && cacheState != Init && !writebacks.notEmpty && !invalidateWritebacks.notEmpty);
+  
+
   (* no_implicit_conditions, fire_when_enabled *)
+  (* descending_urgency = "commonStateUpdate, prefeed" *)
   rule commonStateUpdate; // Ensure that next is dequed every time it is requested to be dequed.
+    debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> commonStateUpdate called.", $time, cacheId));
     ResponseToken rt = resps;
     Bool finishedNewReq = False;
     if (!missedResp) begin
@@ -1629,6 +1636,17 @@ module mkCacheCore#(Integer cacheId,
       retryReqs.insert(getReqId(rt.req), rt.req);
     end
   endrule
+
+
+  rule prefeed (putCondition);
+    debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> commonStateUpdate ending.", $time, cacheId,
+      " canPut: ", fshow(putCondition),
+      " | orderer.reqsFull: ", fshow(orderer.reqsFull),
+      " | cacheState: ", fshow(cacheState),
+      " | writebacks.notEmpty: ", fshow(writebacks.notEmpty),
+      " | invalidateWritebacks.notEmpty: ", fshow(invalidateWritebacks.notEmpty)
+    ));
+  endrule
   
   // This function encapsulates the actions that should be taken to serve
   // the response wires if we will not consume them in the response method.
@@ -1640,6 +1658,7 @@ module mkCacheCore#(Integer cacheId,
       Bool missedRespSig = True;
       if (respsReady) debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> updateStateNoResponse called", $time, cacheId));
       if (!respsReady) begin
+        debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> updateStateNoResponse called BUT respsReady=False", $time, cacheId));
         missedRespSig = False;
       end else if (rt.resp.operation matches tagged Write &&& writeResps.notFull && whichCache!=ICache) begin
         debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Missed Delivering write response, buffered it ", $time, cacheId, fshow(rt)));
@@ -1657,12 +1676,10 @@ module mkCacheCore#(Integer cacheId,
   endfunction
   
   rule catchResponse(!gotResp);
+    debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Catch response called ", $time, cacheId));
     updateStateNoResponse();
   endrule
-  
-  // These conditions tell us whether a new request will certainly be caught if it is inserted.  
-  Bool putCondition = (!orderer.reqsFull && cacheState != Init && !writebacks.notEmpty && !invalidateWritebacks.notEmpty);
-  
+
   method Bool canPut() = putCondition;
   method Action put(CheriMemRequest req) if (putCondition);
     debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Putting new request ", $time, cacheId, fshow(req)));
