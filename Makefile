@@ -28,7 +28,7 @@
 # @BERI_LICENSE_HEADER_END@
 #
 
-BSC = bsc
+BSC = nice -n 19 bsc
 BLUESTUFFDIR ?= $(CURDIR)/BlueStuff
 BLUEAXI4DIR = $(BLUESTUFFDIR)/BlueAXI4
 BLUEAXI4DIRS = $(BLUEAXI4DIR):$(BLUEAXI4DIR)/AXI4:$(BLUEAXI4DIR)/AXI4Lite:$(BLUEAXI4DIR)/AXI4Stream:$(BLUEAXI4DIR)/BlueUnixBridges
@@ -90,6 +90,14 @@ fromfile: $(BENCHMARKDIR)/RunRequestsFromFile.bsv TagController/TagTableStructur
 	mkdir -p $(OUTPUTDIR)/$@-info $(BDIR) $(SIMDIR)
 	$(BSC) -info-dir $(OUTPUTDIR)/$@-info -simdir $(SIMDIR) $(BSCFLAGS) -sim -g $(FROMFILE_TOPMODULE) -u $<
 	CC=$(CC) CXX=$(CXX) $(BSC) -simdir $(SIMDIR) $(BSCFLAGS) -sim -e $(FROMFILE_TOPMODULE) -o $(OUTPUTDIR)/$@
+
+fromfilegraphs: $(OUTPUTDIR)/fromfile-info/mkTagController_combined_full.dot  $(OUTPUTDIR)/fromfile-info/mkTagController_combined.dot $(OUTPUTDIR)/fromfile-info/mkTagController_conflict.dot $(OUTPUTDIR)/fromfile-info/mkTagController_exec.dot $(OUTPUTDIR)/fromfile-info/mkTagController_urgency.dot
+	dot -Tpdf $(OUTPUTDIR)/fromfile-info/mkTagController_combined_full.dot -o $(OUTPUTDIR)/fromfile-info/mkTagController_combined_full.pdf
+	dot -Tpdf $(OUTPUTDIR)/fromfile-info/mkTagController_combined.dot -o $(OUTPUTDIR)/fromfile-info/mkTagController_combined.pdf
+	dot -Tpdf $(OUTPUTDIR)/fromfile-info/mkTagController_conflict.dot -o $(OUTPUTDIR)/fromfile-info/mkTagController_conflict.pdf
+	dot -Tpdf $(OUTPUTDIR)/fromfile-info/mkTagController_exec.dot -o $(OUTPUTDIR)/fromfile-info/mkTagController_exec.pdf
+	dot -Tpdf $(OUTPUTDIR)/fromfile-info/mkTagController_urgency.dot -o $(OUTPUTDIR)/fromfile-info/mkTagController_urgency.pdf
+
 
 TagController/TagTableStructure.bsv: $(CURDIR)/tagsparams.py
 	@echo "INFO: Re-generating CHERI tag controller parameters"
