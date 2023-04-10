@@ -208,8 +208,10 @@ module mkMultiLevelTagLookup #(
   FF#(Bool, 4)             useNextRsp <- mkUGFFDebug("TagLookup_useNextRsp");
 
   // RUNTYPE: bypass tagcachereq
-  FF#(CheriMemRequest, 1) tagCacheReq <- mkFF();
-  // FF#(CheriMemRequest, 1) tagCacheReq <- mkFFBypass();
+  // Original version
+  // FF#(CheriMemRequest, 1) tagCacheReq <- mkFF();
+  // Make bypass (allow feedtagcache in same cycle as doTransition enqs to it)
+  FF#(CheriMemRequest, 1) tagCacheReq <- mkFFBypass();
   
   
   PulseWire                    getReq <- mkPulseWire();
