@@ -93,8 +93,9 @@ typedef TMax#(TDiv#(CheriDataWidth,CapWidth), 1) CapsPerFlit;
 typedef enum {TagLookupReq, StdReq} MemReqType deriving (FShow, Bits, Eq);
 
 // RUNTYPE: in flight operations
+// NOTE: must be a power of 2
 // typedef 4 InFlight;
-typedef 10 InFlight;
+typedef 16 InFlight;
 
 typedef 8 MaxBurstLength;
 typedef Bit#(TLog#(MaxBurstLength)) Frame;
@@ -147,7 +148,15 @@ module mkTagController(TagControllerIfc);
   // Size of these structures must be >= number of outstandring requests from the L2.
   FFBag#(InFlight, ReqId, LookupRspInfo, InFlight) lookupRsp <- mkFFBag;
   FFBag#(InFlight, ReqId, AddrFrame, InFlight)     addrFrame <- mkFFBag;
-  FF#(LookupReqInfo, 2)                            pendingLookups <- mkFF;
+  // RUNTYPE: Buffer pending tag requests
+  // Old version was size 2
+  // FF#(LookupReqInfo, 2)                            pendingLookups <- mkFF;
+  // Now keep track of InFlight pending lookups
+  FF#(LookupReqInfo, InFlight)                     pendingLookups <- mkFF;
+  // As well as buffering up requests to taglookup (which can vary in response time)
+  FF#(CheriTagRequest, InFlight)                   pendingLookupRequests <- mkFFBypass();
+  // FF#(CheriTagRequest, InFlight)                   pendingLookupRequests <- mkFF();
+
   // lookup response frame to access (for multi-flit transactions)
   Reg#(Frame) memoryResponseFrame <- mkReg(0);
   Reg#(CheriTagWrite) tagWrite <- mkReg(unpack(0));
@@ -160,7 +169,9 @@ module mkTagController(TagControllerIfc);
   // Forwarding requests from the tag cache takes priority unless we have an ongoing burst request being forwarded,
   // or if there is not enough space for a full burst.
   Bool slvCanPut =
-    tagLookup.cache.request.canPut() &&
+    // RUNTYPE: Buffer pending tag requests
+    // tagLookup.cache.request.canPut() &&
+    pendingLookupRequests.notFull() &&
     mReqs.notFull() && mReqBurst.notFull() && !addrFrame.full();
 
   // module rules
@@ -173,6 +184,16 @@ module mkTagController(TagControllerIfc);
     debug2("tagcontroller", $display("<time %0t TagController> Completed lookup response: ", $time, fshow(lookup.id), " - ", fshow(LookupRspInfo{rsp: tags, tagOnlyRead: lookup.tagOnlyRead})));
     lookupRsp.enq(lookup.id, LookupRspInfo{rsp: tags, tagOnlyRead: lookup.tagOnlyRead});
     pendingLookups.deq;
+  endrule
+
+  // RUNTYPE: Buffer pending tag requests
+  rule putTagLookupRequest (tagLookup.cache.request.canPut() && pendingLookupRequests.notEmpty());
+    let tagReq = pendingLookupRequests.first();
+    pendingLookupRequests.deq();
+
+    debug2("tagcontroller", $display("<time %0t TagController> Sending request to tagLookup: ", $time, " ", fshow(tagReq)));    
+          
+    tagLookup.cache.request.put(tagReq);
   endrule
 
   // helper functions / signals
@@ -232,15 +253,16 @@ module mkTagController(TagControllerIfc);
   rule debug;
     // debug2("tagcontroller", $display("<time %0t TagController> slvCanPut:%x tagLookup.cache.request.canPut(1):%x tagLookup.memory.request.canGet(0):%x mReqs.notFull(1):%x",
     //                                  $time, slvCanPut, tagLookup.cache.request.canPut(), tagLookup.memory.request.canGet(), mReqs.notFull()));
-    // debug2("tagcontroller", $display("<time %0t TagController> slvCanGet:%x tagRsp.v(1):%x untrackedResponse(1):%x",
-    //                                  $time, slvCanGet, tagRsp.v, untrackedResponse));
-    debug2("tagcontroller", $display("<time %0t TagController> DEBUG: ", $time, 
-      // "memoryCanGet: ", fshow(memoryCanGet), " | ",
-      // "memoryGetPeek: ", fshow(mReqs.first), " | ",
-      "taglookup cache request canput: ", fshow(tagLookup.cache.request.canPut()), " | ",
-      "taglookup cache response canget: ", fshow(tagLookup.cache.response.canGet()), " | ",
-      ""
-    ));
+    // // debug2("tagcontroller", $display("<time %0t TagController> slvCanGet:%x tagRsp.v(1):%x untrackedResponse(1):%x",
+    // //                                  $time, slvCanGet, tagRsp.v, untrackedResponse));
+    // debug2("tagcontroller", $display("<time %0t TagController> DEBUG: ", $time, 
+    //   // "memoryCanGet: ", fshow(memoryCanGet), " | ",
+    //   // "memoryGetPeek: ", fshow(mReqs.first), " | ",
+    //   // "taglookup cache request canput: ", fshow(tagLookup.cache.request.canPut()), " | ",
+    //   // "taglookup cache response canget: ", fshow(tagLookup.cache.response.canGet()), " | ",
+    //   // "pendingLookupRequests.first: ", fshow(pendingLookupRequests.first), " | ",
+    //   ""
+    // ));
   endrule
 
   // module Slave interface
@@ -278,6 +300,7 @@ module mkTagController(TagControllerIfc);
         Bool canDoEnq = !tagOnlyRead;
         if (canDoEnq) begin
             debug2("tagcontroller", $display("<time %0t TagController> Enqueuing request to mReqs: ", $time, fshow(req)));
+            debug2("tagcontroller", $display("<time %0t TagController> mReqs remaining slots: ", $time, fshow(mReqs.remaining())));
             mReqs.enq(req);
             // Signal that the next burst in mReqs can be forwarded downstream.
             // FIXME: If we receive a read request in the middle of a write
@@ -312,14 +335,25 @@ module mkTagController(TagControllerIfc);
             end
             if (getLastField(req)) begin
               tagReq.operation = tagged Write newTagWrite;
-              debug2("tagcontroller", $display("<time %0t TagController> Injecting Write Lookup: ", $time, fshow(tagReq)));
-              tagLookup.cache.request.put(tagReq);
+
+              // RUNTYPE: Buffer pending tag requests
+              // debug2("tagcontroller", $display("<time %0t TagController> Injecting Write Lookup: ", $time, fshow(tagReq)));
+              // tagLookup.cache.request.put(tagReq);
+              debug2("tagcontroller", $display("<time %0t TagController> Enqueuing Write lookup to pendingLookupRequests: ", $time, " ", fshow(tagReq)));    
+              debug2("tagcontroller", $display("<time %0t TagController> Space left in pendingLookupRequests: ", $time, " ", fshow(pendingLookupRequests.remaining())));    
+              pendingLookupRequests.enq(tagReq);
+
               newTagWrite = unpack(0);
             end
             tagWrite <= newTagWrite;
         end else begin
-          debug2("tagcontroller", $display("<time %0t TagController> Sending read request to tagLookup: ", $time, " ", fshow(tagReq)));    
-          tagLookup.cache.request.put(tagReq);
+          // RUNTYPE: Buffer pending tag requests
+          // debug2("tagcontroller", $display("<time %0t TagController> Sending read request to tagLookup: ", $time, " ", fshow(tagReq)));    
+          // tagLookup.cache.request.put(tagReq);
+          debug2("tagcontroller", $display("<time %0t TagController> Enqueuing read request to pendingLookupRequests: ", $time, " ", fshow(tagReq)));    
+          debug2("tagcontroller", $display("<time %0t TagController> Space left in pendingLookupRequests: ", $time, " ", fshow(pendingLookupRequests.remaining())));    
+          pendingLookupRequests.enq(tagReq);
+
           debug2("tagcontroller", $display("<time %0t TagController> Enqueueing lookup request info into pendingLookups: ", $time, " ", fshow(LookupReqInfo{id: id, tagOnlyRead: tagOnlyRead})));    
           pendingLookups.enq(LookupReqInfo{id: id, tagOnlyRead: tagOnlyRead});
         end
