@@ -193,7 +193,15 @@ module mkMultiLevelTagLookup #(
   // address to zero when in Init state
   Reg#(CheriPhyAddr) zeroAddr <- mkReg(tagTabStrtAddr);
   // transaction number for memory requests
-  Reg#(CheriTransactionID) transNum <- mkReg(0);
+
+  //RUNTYPE: Buffer pending tag requests
+  // Reg#(CheriTransactionID) transNum <- mkReg(0);
+  Reg#(CheriTransactionID) transNum <- mkConfigReg(0);
+
+  //RUNTYPE: Buffer pending tag requests
+  PulseWire aboutToIdle <- mkPulseWire();
+  FF#(CheriTagRequest, 1) pendingTagReqs <- mkFFBypass();
+
   // pending read requests fifo covered or not
   FF#(Bool,1) readReqs <- mkLFF1();
   // lookup response fifo
@@ -221,10 +229,20 @@ module mkMultiLevelTagLookup #(
     zeroExtend(mReqs.remaining()), ff2fifof(mReqs), ff2fifof(mRsps));
 
   // current lookup's depth
-  Reg#(TDepth)    currentDepth     <- mkReg(unpack(0));
-  Reg#(CapNumber) pendingCapNumber <- mkReg(unpack(0));
-  Reg#(LineTags) pendingTags <- mkReg(unpack(0));
-  Reg#(LineTags) pendingCapEnable <- mkReg(unpack(0));
+  // RUNTYPE: Buffer pending tag requests
+  //
+  // Normal registers
+  // Reg#(TDepth)    currentDepth     <- mkReg(unpack(0));
+  // Reg#(CapNumber) pendingCapNumber <- mkReg(unpack(0));
+  // Reg#(LineTags) pendingTags <- mkReg(unpack(0));
+  // Reg#(LineTags) pendingCapEnable <- mkReg(unpack(0));
+  //
+  // Control registers
+  Reg#(TDepth)    currentDepth     <- mkConfigReg(unpack(0));
+  Reg#(CapNumber) pendingCapNumber <- mkConfigReg(unpack(0));
+  Reg#(LineTags) pendingTags <- mkConfigReg(unpack(0));
+  Reg#(LineTags) pendingCapEnable <- mkConfigReg(unpack(0));
+
   Vector#(tdepth,Reg#(Bit#(CheriDataWidth))) oldTags <- replicateM(mkReg(unpack(0)));
 
   // module helper functions
@@ -389,10 +407,13 @@ module mkMultiLevelTagLookup #(
     currentDepth <= newDepth;
     // do state transistion
     state <= newState;
-    debug2("taglookup",
-      $display("<time %0t TagLookup> pendingCapNumber %x, currentDepth %d -> %d, state ",
-      $time, pendingCapNumber, currentDepth, newDepth, fshow(state), " -> ", fshow(newState)
-    ));
+
+    // RUNTYPE: Buffer pending tag requests:
+    // I moved this to where doLookup called (so can call dolookup twice in same clock cycle)
+    // debug2("taglookup",
+    //   $display("<time %0t TagLookup> pendingCapNumber %x, currentDepth %d -> %d, state ",
+    //   $time, pendingCapNumber, currentDepth, newDepth, fshow(state), " -> ", fshow(newState)
+    // ));
   endaction;
 
   rule feedTagCache (tagCache.canPut);
@@ -468,21 +489,26 @@ module mkMultiLevelTagLookup #(
     ));
   endrule
 
-  // Main lookup rule
-  /////////////////////////////////////////////////////////////////////////////
   rule debug;
-    debug2("taglookup",
-      $display(
-      "<time %0t TagLookup> DEBUG ", $time, 
-      "state: ", fshow(state), " | ",
-      "useNextRsp.notFull:", fshow(useNextRsp.notFull), " | ",
-      "tagCacheReq.remaining: ", fshow(tagCacheReq.remaining), " | ",
-      ""
-    ));
+    // debug2("taglookup",
+    //   $display(
+    //   "<time %0t TagLookup> DEBUG ", $time, 
+    //   "state: ", fshow(state), " | ",
+    //   "useNextRsp.notFull:", fshow(useNextRsp.notFull), " | ",
+    //   "tagCacheReq.remaining: ", fshow(tagCacheReq.remaining), " | ",
+    //   ""
+    // ));
   endrule
 
+  // Main lookup rule
+  /////////////////////////////////////////////////////////////////////////////
   // As this calls doTransition, it requires that tagCacheReq is not full!
   // Fixable by simply making tagCacheReq >= 2
+  
+  // RUNTYPE: Buffer pending tag requests
+  // Compiler thinks these comflict as both trigger doTransition
+  // BUT process_pending_tag_requests only triggered in cycles where they do not conflict
+  (* conflict_free = "doLookup, process_pending_tag_requests, could_process" *)
   rule doLookup (state != Idle && state != Init && useNextRsp.notFull);
     // Common signals
     ///////////////////////////////////////////////////////////////////////////
@@ -511,6 +537,14 @@ module mkMultiLevelTagLookup #(
     Vector#(1,Bool) zero = replicate (False);
     Vector#(1,Bool) one  = replicate (True);
 
+    debug2("taglookup", $display("<time %0t TagLookup> Received a response.", $time,
+      " valid: ", fshow(tagCache.response.canGet()),
+      " | state: ", fshow(state),
+      " | memRspReady: ", fshow(memRspReady),
+      " | lookupsRsp.notFull: ", fshow(lookupRsp.notFull),
+      ""
+    ));
+    
     case (state) matches
       // ReadTag state
       /////////////////////////////////////////////////////////////////////////
@@ -661,7 +695,123 @@ module mkMultiLevelTagLookup #(
       end
     endcase
     // do the transition
-    if (doATransition) doTransition(newCacheReq, newDepth, newState, useRsp);
+    if (doATransition) begin
+      doTransition(newCacheReq, newDepth, newState, useRsp);
+      debug2("taglookup",
+        $display("<time %0t TagLookup> Transitioning: pendingCapNumber %x, currentDepth %d -> %d, state ",
+        $time, pendingCapNumber, currentDepth, newDepth, fshow(state), " -> ", fshow(newState)
+      ));
+      // RUNTYPE: Buffer pending tag requests
+      case (newCacheReq) matches
+        // No new request sent to the cache
+        // Therefore can send a pending request after this rule ends
+        tagged Invalid: begin
+          if (newState==Idle) begin
+            aboutToIdle.send();
+            debug2("taglookup", $display("<time %0t TagLookup> Sent a pulse down aboutToIdle", $time ));
+          end
+        end
+      endcase
+    end
+  endrule 
+
+
+  rule could_process (aboutToIdle || state==Idle);
+    debug2("taglookup", $display("<time %0t TagLookup> Could process a request.", $time,
+      " aboutToIdle: ", fshow(aboutToIdle),
+      " | state: ", fshow(state),
+      " | pendingTagReqs.notEmpty: ", fshow(pendingTagReqs.notEmpty),
+      " | tagCacheReq.notFull: ", fshow(tagCacheReq.notFull),
+      " | readReqs.notFull: ", fshow(readReqs.notFull),
+      ""
+    ));
+  endrule
+
+  // State==Idle if started current clock cycle with State==Idle
+  // aboutToIdle has pulse if doLookup transitioned to Idle
+  rule process_pending_tag_requests ((aboutToIdle || state==Idle) && pendingTagReqs.notEmpty && tagCacheReq.notFull);
+    let req = pendingTagReqs.first();
+    pendingTagReqs.deq();
+ 
+    debug2("taglookup",
+      $display(
+        "<time %0t TagLookup> Processing pending tag lookup request: ",
+        $time, fshow(req)
+    ));
+
+    // next state to go to
+    State nextState  = Idle;
+    // check whether we are in the covered region
+    Bool doTagLookup = isCovered(req.addr);
+    // initialise future pending tags
+    LineTags newPendingTags = unpack(0);
+    LineTags newPendingCapEnable = unpack(0);
+    // initialise a toplevel table lookup
+    CheriCapAddress capAddr = unpack(pack(req.addr) - pack(coveredStrtAddr));
+    CheriMemRequest mReq = craftTagReadReq (rootLvl,capAddr.capNumber);
+    case (req.operation) matches
+      // when it's a read
+      //////////////////////////////
+      tagged Read: begin
+        readReqs.enq(doTagLookup);
+        nextState = ReadTag;
+      end
+      // when it's a write
+      //////////////////////////////
+      tagged Write .wop: begin
+        // get cap tags
+        LineTags capTags = wop.tags;
+        LineTags capEnable = wop.writeEnable;
+        // and cap tags with cap enable
+        LineTags andTags = zipWith(andBool,capTags,capEnable);
+        // update new pending tags
+        newPendingTags = capTags;
+        newPendingCapEnable = capEnable;
+        //check wether to write anything or not
+        function Bool isTrue  (Bool x) = x == True;
+        function Bool isFalse (Bool x) = x == False;
+        if (all(isFalse,capEnable)) begin
+          nextState = Idle;
+          doTagLookup = False;
+        end else if (all(isFalse,andTags)) begin
+          // when all tags to write are 0
+          nextState = ClearTag;
+        end else begin
+          // when writing at least a 1
+          mReq = craftTagWriteReq(rootLvl,capAddr.capNumber,capTags,capEnable,tagged Invalid);
+          nextState = SetTag;
+        end
+      end
+      // ignore other types of requests
+      default: begin
+        doTagLookup = False;
+        nextState = Idle;
+      end
+    endcase
+    // when a lookup is required
+    if (doTagLookup) begin
+      pendingCapNumber <= capAddr.capNumber;
+      pendingTags      <= newPendingTags;
+      pendingCapEnable <= newPendingCapEnable;
+      debug2("taglookup",
+        $display(
+          "<time %0t TagLookup> Starting lookup with capNum = ",
+          $time, fshow(capAddr.capNumber),
+          " ( pending tags = ", fshow(newPendingTags),
+          ", pending cap enable = ",fshow(newPendingCapEnable)," )"
+      ));
+
+      doTransition(tagged Valid mReq,rootLvl,nextState,True);
+      debug2("taglookup",
+        $display("<time %0t TagLookup> Transitioning: pendingCapNumber %x, currentDepth %d -> %d, state ",
+        $time, capAddr.capNumber, currentDepth, rootLvl, fshow(Idle), " -> ", fshow(nextState)
+      ));
+
+    end else debug2("taglookup",
+      $display(
+        "<time %0t TagLookup> memory not covered",
+        $time
+    ));
   endrule
 
   // module Slave interface
@@ -672,9 +822,14 @@ module mkMultiLevelTagLookup #(
     // lookup Slave request interface
     //////////////////////////////////////////////////////
     interface CheckedPut request;
-      method Bool canPut() = (state == Idle) && tagCacheReq.notFull;
+      // RUNTYPE: Buffer pending tag requests
+      // method Bool canPut() = (state == Idle) && tagCacheReq.notFull;
+      method Bool canPut() = pendingTagReqs.notFull;
       // tag request
       //////////////////////////////
+      // RUNTYPE: Buffer pending tag requests
+      /*
+      // OLD VERSION
       method Action put(CheriTagRequest req) if (state == Idle);
         debug2("taglookup",
           $display(
@@ -749,6 +904,16 @@ module mkMultiLevelTagLookup #(
             $time
         ));
       endmethod
+      */
+      // NEW version
+      method Action put(CheriTagRequest req) if (pendingTagReqs.notFull);
+        debug2("taglookup",
+          $display(
+            "<time %0t TagLookup> Enqueueing pending tag lookup request: ",
+            $time, fshow(req)
+        ));
+        pendingTagReqs.enq(req);
+      endmethod
     endinterface
 
     // lookup Slave response interface
@@ -821,6 +986,7 @@ module mkNullMultiLevelTagLookup (TagLookupIfc);
   // FF#(Bool,1) readReqs <- mkLFF1();
   FF#(Bool,2) readReqs <- mkUGFFDebug("TagLookup_readReqs");
   // lookup response fifo
+  // FF#(LineTags,1) lookupRsp      <- mkUGFFDebug("TagLookup_lookupRsp");
   FF#(LineTags,2) lookupRsp      <- mkUGFFDebug("TagLookup_lookupRsp");
 
   // memory requests fifo
