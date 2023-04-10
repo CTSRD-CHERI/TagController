@@ -68,19 +68,28 @@ def plot_progress(request_durations, colour, label):
     plt.plot(times, responded, label=f"{label}", color=colour, linestyle="-")
 
 
+## READ FILES
 null_controller = get_request_periods("Logs/testing/nullcontroller.txt")
 null_lookups = get_request_periods("Logs/testing/nulllookups.txt")
 original_controller = get_request_periods("Logs/testing/all_1000.txt")
 bypass_tagcachereq = get_request_periods("Logs/testing/1000_bypass_tagcachereq.txt")
+response_and_lookup = get_request_periods("Logs/testing/full_cache_throughput.txt")
 
+## PLOT ON GRAPH
 # plot_progress(null_controller, "tab:blue", "Skip tag controller")
 plot_progress(null_lookups, "tab:blue", "Skip tag lookups")
 plot_progress(original_controller, "tab:orange", "Base controller")
 plot_progress(bypass_tagcachereq, "tab:green", "Bypass TagCacheReq")
+plot_progress(response_and_lookup, "tab:red", "One cycle tag lookups")
+
+## DECORATE AND SAVE GRAPH
 plt.xlabel("Number of clock cycles")
 plt.ylabel("Memory reads completed")
 plt.legend()
 plt.savefig("all_throughputs.png")
+
+
+# print(response_and_lookup)
 
 # latency = np.array([x[1] - x[0] for x in request_durations[2:]])
 
