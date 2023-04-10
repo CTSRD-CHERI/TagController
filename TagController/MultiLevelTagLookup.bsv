@@ -202,10 +202,23 @@ module mkMultiLevelTagLookup #(
   PulseWire aboutToIdle <- mkPulseWire();
   FF#(CheriTagRequest, 1) pendingTagReqs <- mkFFBypass();
 
+  // RUNTYPE: Buffer pending tag requests
+  //
+  // ## Original: Only size 1
+  //
   // pending read requests fifo covered or not
-  FF#(Bool,1) readReqs <- mkLFF1();
+  // FF#(Bool,1) readReqs <- mkLFF1();
   // lookup response fifo
-  FF#(LineTags,1) lookupRsp      <- mkUGFFDebug("TagLookup_lookupRsp");
+  // FF#(LineTags,1) lookupRsp      <- mkUGFFDebug("TagLookup_lookupRsp");
+  //
+  // ## BUT size of 1 blocks new requests from being enqueued until tag controller 
+  // ## calls cache.response.get() so make these larger (size InFlight)
+  //
+  // pending read requests fifo covered or not
+  FF#(Bool,2) readReqs <- mkLFF();
+  // lookup response fifo
+  FF#(LineTags,2) lookupRsp      <- mkUGFFDebug("TagLookup_lookupRsp");
+
   // memory requests fifo
   FF#(CheriMemRequest, 8)  mReqs <-  mkUGFFDebug("TagLookup_mReqs");
   // memory response fifo
