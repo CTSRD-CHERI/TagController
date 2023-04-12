@@ -150,40 +150,99 @@ module mkRequestsFromFile (Empty);
     Clock clk      <- exposeCurrentClock;
     MakeResetIfc r <- mkReset(0, True, clk);
 
-    // 4 bit id width
-    // RUNTYPE: ALL NULL
-    TagControllerAXI#(4,AddressLength,CacheLineLength) tagcontroller <- mkTagControllerAXI(reset_by r.new_rst);
-    // TagControllerAXI#(4,AddressLength,CacheLineLength) tagcontroller <- mkNullTagControllerAXI(reset_by r.new_rst);
+    // Used to setup initial DRAM state
+    TagControllerAXI#(AXI_id_width,AddressLength,CacheLineLength) tagcontroller_initialiser <- mkTagControllerAXI(
+        True, // Is the initialiser
+        True, // Start off connected to DRAM
+        reset_by r.new_rst
+    );
+
     
+    // What actually does the requests
+    // RUNTYPE: ALL NULL
+    // 4 bit id width
+    TagControllerAXI#(AXI_id_width,AddressLength,CacheLineLength) tagcontroller_main <- mkTagControllerAXI(
+        False, // Is NOT the initialiser
+        False, // Start off NOT connected to DRAM
+        reset_by r.new_rst
+    );
+    /*
+    TagControllerAXI#(4,AddressLength,CacheLineLength) tagcontroller_main <- mkNullTagControllerAXI(
+        // No option to be the initialiser
+        False, // Start off NOT connected to DRAM
+        reset_by r.new_rst
+    );
+    */
+    
+    // Initialises with alternatign 1s and 0s
     AXI4_Slave#(
         8, AddressLength, CacheLineLength, 0, 0, 0, 0, 0
-    ) dram <- BenchModelDRAM::mkModelDRAMAssoc(4, reset_by r.new_rst);
+    ) dram <- BenchModelDRAM::mkModelDRAM(4, reset_by r.new_rst);
 
-    mkConnection(tagcontroller.master, dram, reset_by r.new_rst);
+    // Only the one with isInUse set will consume DRAM responses
+    mkConnection(tagcontroller_initialiser.master, dram, reset_by r.new_rst);
+    mkConnection(tagcontroller_main.master, dram, reset_by r.new_rst);
    
-    String sourceFile = "test_write.dat";
+    // Sequential reads
+    String sourceFile = "dramtraces/sequential_reads.dat";
+    // // Sequential writes
+    // String sourceFile = "dramtraces/sequential_writes.dat";
 
-    mkFileToAXI(sourceFile,tagcontroller.slave,reset_by r.new_rst);
+    mkFileToTagController(
+        sourceFile, 
+        tagcontroller_initialiser,
+        tagcontroller_main,
+        reset_by r.new_rst
+    );
 endmodule
     
-module mkFileToAXI#(
+module mkFileToTagController#(
     String sourceFile,
-    AXI4_Slave#(
-        id_,
+    TagControllerAXI#(
+        AXI_id_width,
         AddressLength,
-        CacheLineLength, 
-        0, // awuser
-        TagController::CapsPerFlit, // wuser (capabililites)
-        0, // buser
-        1, // aruser (tagonly)
-        TagController::CapsPerFlit // ruser (capabilities)
-    ) axiSlave
-) (Empty)
-    provisos (Add#(a__, id_, 8));
-
+        CacheLineLength
+    ) tc_initialiser,
+    TagControllerAXI#(
+        AXI_id_width,
+        AddressLength,
+        CacheLineLength
+    ) tc_main
+) (Empty);
+    
     Reg#(File) file_handler <- mkReg(?);
     Reg#(Bool) opened <- mkReg(False);
     Reg#(Bool) done <- mkReg(False);
+    
+    Reg#(Bit#(64)) simulationTime <- mkReg(0);
+
+    // What id to use for next op
+    Reg#(Bit#(8)) idCount <- mkReg(0);
+    // FIFO storing details of outstanding loads/stores
+    FIFOF#(FileMemoryOp) outstandingFIFO <- mkSizedFIFOF(16);
+
+    // Decided which tag controller to use for requests / responses
+    // NOTE: scheduler assumes that need BOTH to be ready in order to do anything
+    //   - Requests are OK (as if not in use then always ready to receive requests)
+    //   - Responses need seperate rules (as if not in use then never have responses)
+    Reg#(Bool) use_main_axi <- mkReg(False);
+    let currentAxiSlave = use_main_axi ? tc_main.slave : tc_initialiser.slave;
+
+    // Set to false to ensure all requests after end of iniit get sent to main controller
+    Reg#(Bool) process_new_requests <- mkReg(True);
+    // Used to indicate that end of init instruction has been seen
+    Reg#(Bool) end_of_init <- mkReg(False);
+
+    // Ensure that initialiser is not expecting any more DRAM responses
+    rule switch_to_main_slave (end_of_init && !outstandingFIFO.notEmpty && tc_initialiser.isIdle);
+        debug2("benchmark", $display("<time %0t Benchmark> Switching to main tag controller!", $time));
+        tc_initialiser.set_isInUse(False);
+        tc_main.set_isInUse(True);
+        use_main_axi <= True;
+        process_new_requests <= True;
+        end_of_init <= False;
+    endrule
+
 
     rule open_file (!opened);
         File file_obj <- $fopen(sourceFile, "r");
@@ -231,22 +290,13 @@ module mkFileToAXI#(
         end
     endrule
 
-    // What id to use for next op
-    Reg#(Bit#(8)) idCount <- mkReg(0);
-    // FIFO storing details of outstanding loads/stores
-    // TODO: currently just used as "counter" for how many are awaiting a response
-    //       would be better to match responses with ids
-    FIFOF#(FileMemoryOp) outstandingFIFO <- mkSizedFIFOF(16);
-
-    Reg#(Bit#(64)) simulationTime <- mkReg(0);
-
     rule updateTime;
         let t <- $time;
         simulationTime <= t;
     endrule
 
     // Functions
-    rule issueIntruction (sourceFileOpsFIFO.notEmpty && simulationTime > 10000);
+    rule issueIntruction (sourceFileOpsFIFO.notEmpty && simulationTime > 10000 && process_new_requests);
         let next_op = sourceFileOpsFIFO.first;
         if (next_op.op_type == 0)
         begin
@@ -254,7 +304,7 @@ module mkFileToAXI#(
 
             // this is a read operation
             
-            AXI4_ARFlit#(id_, AddressLength, 1) addrReq = defaultValue;
+            AXI4_ARFlit#(AXI_id_width, AddressLength, 1) addrReq = defaultValue;
             
             addrReq.arid = truncate(idCount);
             idCount <= idCount + 1;
@@ -263,7 +313,7 @@ module mkFileToAXI#(
             addrReq.arcache = 4'b1011; //TODO (what to put here?)
             
             debug2("benchmark", $display("<time %0t Benchmark> Sending Load: ", $time, fshow(addrReq)));
-            axiSlave.ar.put(addrReq);
+            currentAxiSlave.ar.put(addrReq);
 
             outstandingFIFO.enq(next_op);
             sourceFileOpsFIFO.deq();
@@ -282,7 +332,7 @@ module mkFileToAXI#(
             addrReq.awcache = 4'b1011;
 
             debug2("benchmark", $display("<time %0t Benchmark> Sending Write Address request: ", $time, fshow(addrReq)));
-            axiSlave.aw.put(addrReq);
+            currentAxiSlave.aw.put(addrReq);
     
             AXI4_WFlit#(128, 1) dataReq = defaultValue;
 
@@ -290,35 +340,52 @@ module mkFileToAXI#(
             dataReq.wuser = truncate(tags);
 
             debug2("benchmark", $display("<time %0t Benchmark> Sending Write data: ", $time, fshow(dataReq)));
-            axiSlave.w.put(dataReq);
+            currentAxiSlave.w.put(dataReq);
 
             outstandingFIFO.enq(next_op);
             sourceFileOpsFIFO.deq();
         end
         else if (next_op.op_type == 2)
         begin
-            // process_new_requests <= False;
-            // end_of_init <= True;
-            // sourceFileOpsFIFO.deq();
-            $display("ERROR: DRAM initialising not supported yet!");
-            $finish;
+            process_new_requests <= False;
+            end_of_init <= True;
+            sourceFileOpsFIFO.deq();
         end
     endrule
 
     // Fill response FIFO
-    rule handleWriteResponses (axiSlave.b.canPeek);
+    // NOTE: need 2 versions of these rules so compiler knows only 1 of the tc's needs to be ready
+    rule handleWriteResponses_main (tc_main.slave.b.canPeek);
         outstandingFIFO.deq;
-        let b <- get(axiSlave.b);
+        let b <- get(tc_main.slave.b);
+        debug2("benchmark", $display("<time %0t Benchmark> Write response received: ", $time, fshow(b)));
+    endrule
+    rule handleWriteResponses_init (tc_initialiser.slave.b.canPeek);
+        outstandingFIFO.deq;
+        let b <- get(tc_initialiser.slave.b);
         debug2("benchmark", $display("<time %0t Benchmark> Write response received: ", $time, fshow(b)));
     endrule
 
-
-    rule handleReadResponses (axiSlave.r.canPeek);
+    rule handleReadResponses_main (tc_main.slave.r.canPeek);
         outstandingFIFO.deq;
-        let r <- get(axiSlave.r);
+        let r <- get(tc_main.slave.r);
+        debug2("benchmark", $display("<time %0t Benchmark> Read response received: ", $time, fshow(r)));
+    endrule
+    rule handleReadResponses_init (tc_initialiser.slave.r.canPeek);
+        outstandingFIFO.deq;
+        let r <- get(tc_initialiser.slave.r);
         debug2("benchmark", $display("<time %0t Benchmark> Read response received: ", $time, fshow(r)));
     endrule
 
+    /*
+    rule debug_no_main_resps (tc_main.slave.r.canPeek);
+        debug2("benchmark", $display("<time %0t Benchmark> DEBUG: read resp from main ", $time));
+    endrule
+    rule debug_no_init_resps (tc_initialiser.slave.r.canPeek);
+        debug2("benchmark", $display("<time %0t Benchmark> DEBUG: read resp from init ", $time));
+    endrule
+    */
+    
     rule endBenchmark (done && !outstandingFIFO.notEmpty);
         $finish(0);
     endrule

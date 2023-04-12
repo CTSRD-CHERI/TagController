@@ -63,6 +63,12 @@ module [Module] mkTestMemTopSingle (Empty);
 
   // Implementation
   //AXITagShim#(0,32,128,0) dut <- mkDummyDUT(reset_by r.new_rst);
+  TagControllerAXI#(4,32,128) dut <- mkTagControllerAXI(
+    `ifdef TAGCONTROLLER_BENCHMARKING
+    False, True, 
+    `endif 
+    reset_by r.new_rst
+  );
   TagControllerAXI#(4,32,128) dut <- mkTagControllerAXI(reset_by r.new_rst);
   // Instantiate DRAM model
   // (max oustanding requests = 4)

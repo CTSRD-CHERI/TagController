@@ -62,6 +62,7 @@ BSCFLAGS += -D CheriMasterIDWidth=4
 BSCFLAGS += -D CheriTransactionIDWidth=4
 BSCFLAGS += +RTS -K33554432 -RTS
 BSCFLAGS += -suppress-warnings T0127:S0080 # no orphan typeclass warning
+BSCFLAGS += -D TAGCONTROLLER_BENCHMARKING
 
 TESTSDIR = Test
 SIMTESTSSRC = $(sort $(wildcard $(TESTSDIR)/*.bsv))
