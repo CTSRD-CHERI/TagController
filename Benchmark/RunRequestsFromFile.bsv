@@ -9,16 +9,21 @@ import SourceSink::*;
 import Connectable::* ;
 import Debug::*;
 
-typedef 64 AddressLength;
+typedef 32 AddressLength;
 typedef 128 CacheLineLength;
+typedef 1 TagsPerLine;
+typedef 4 AXI_id_width;
 
+// Line stride is BYTES
 // `define LINE_STRIDE 10000024
-`define LINE_STRIDE 128
+// `define LINE_STRIDE 128 // 8 * 128bit capabilities
+`define LINE_STRIDE 16 // 1 * 128bit capabilities
 
 typedef struct {
-  Bit#(8) op_type; // 0 if Read, 1 if Write
+  Bit#(8) op_type; // 0 if Read, 1 if Write, 2 if End of initialising
   Bit#(AddressLength) address; // 64 bit address
   Bit#(CacheLineLength) data; // 128 bit cache lines
+  Bit#(8) tags; // tag bits per cache line (round up to 1 byte)
 } FileMemoryOp
   deriving (Bits, Eq, FShow);
 
@@ -27,7 +32,12 @@ typedef TDiv#(SizeOf#(FileMemoryOp), 8) BytesPerMemop;
 (* synthesize *)
 module mkWriteTest (Empty);
 
-    String targetFile = "test_write.dat";
+    // Sequential reads 
+    String targetFile = "dramtraces/sequential_reads.dat";
+    // // Sequential writes
+    // String targetFile = "dramtraces/sequential_writes.dat";
+
+
     Reg#(File) file_handler <- mkReg(?);
 
     Reg#(Bool) opened <- mkReg(False);
@@ -43,15 +53,29 @@ module mkWriteTest (Empty);
     endrule
 
     rule write_to_file (opened && !finished);
+        // Sequential reads
         let next_op = FileMemoryOp {
             op_type: 0,
             address: curr_addr,
-            data: 0
+            data: 0,
+            tags: 0
         };
+        curr_addr <= curr_addr + `LINE_STRIDE;
+
+        // // Sequential writes (no tags)
+        // let next_op = FileMemoryOp {
+        //     op_type: 1,
+        //     address: curr_addr,
+        //     data: -1,
+        //     tags: 0
+        // };
+        // curr_addr <= curr_addr + `LINE_STRIDE;
+
         $display("Writing to file: ", fshow(next_op));
         $fwriteh(file_handler, next_op);
+
         ops_left_to_write <= ops_left_to_write - 1;
-        curr_addr <= curr_addr + `LINE_STRIDE;
+
         if (ops_left_to_write == 0)
         begin
             finished <= True;
@@ -195,7 +219,7 @@ module mkFileToAXI#(
         // Dodgy but sound way of detecting when got to end of the file!
         // op_type should always be 0 (read) or 1 (write) but at end of the file
         // will never read this if at end of file.
-        if(op.op_type > 1)
+        if(op.op_type > 2)
         begin
             $display("ERROR: Could not get byte from %s", sourceFile);
             $fclose ( file_handler );
@@ -246,7 +270,37 @@ module mkFileToAXI#(
         end 
         else if (next_op.op_type == 1)
         begin
-            $display("ERROR: Writes not supported yet!");
+            let addr = next_op.address;
+            let data = next_op.data;
+            let tags = next_op.tags;
+
+            AXI4_AWFlit#(AXI_id_width, AddressLength, 0) addrReq = defaultValue;
+
+            addrReq.awid = truncate(idCount);
+            idCount <= idCount + 1;
+            addrReq.awaddr = addr;
+            addrReq.awcache = 4'b1011;
+
+            debug2("benchmark", $display("<time %0t Benchmark> Sending Write Address request: ", $time, fshow(addrReq)));
+            axiSlave.aw.put(addrReq);
+    
+            AXI4_WFlit#(128, 1) dataReq = defaultValue;
+
+            dataReq.wdata = data;
+            dataReq.wuser = truncate(tags);
+
+            debug2("benchmark", $display("<time %0t Benchmark> Sending Write data: ", $time, fshow(dataReq)));
+            axiSlave.w.put(dataReq);
+
+            outstandingFIFO.enq(next_op);
+            sourceFileOpsFIFO.deq();
+        end
+        else if (next_op.op_type == 2)
+        begin
+            // process_new_requests <= False;
+            // end_of_init <= True;
+            // sourceFileOpsFIFO.deq();
+            $display("ERROR: DRAM initialising not supported yet!");
             $finish;
         end
     endrule
