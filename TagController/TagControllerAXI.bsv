@@ -69,11 +69,25 @@ interface TagControllerAXI#(
 `ifdef PERFORMANCE_MONITORING
   method EventsCacheCore events;
 `endif
+`ifdef TAGCONTROLLER_BENCHMARKING
+  method Action set_isInUse(Bool inUse);
+  method Bool isIdle;
+`endif
 endinterface
 
 // module mkNullTagControllerAXI(TagControllerAXI#(id_, addr_,Wd_Data))
-module mkNullTagControllerAXI(TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 8)))
+`ifdef TAGCONTROLLER_BENCHMARKING
+module mkNullTagControllerAXI#(Bool inUse)
+`else 
+module mkNullTagControllerAXI
+`endif
+  (TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 8)))
   provisos (Add#(a__, id_, CheriTransactionIDWidth), Add#(c__, addr_, 64),Add#(b__, id_, 8));
+
+  `ifdef TAGCONTROLLER_BENCHMARKING
+  Reg#(Bool) isInUse <- mkReg(inUse);
+  `endif
+
   let    clk <- exposeCurrentClock;
   let newRst <- mkReset(0, True, clk);
   //Workaround: these are being enqueued while full in Piccolo. Made the buffer size larger (32 from 4)
@@ -123,7 +137,12 @@ module mkNullTagControllerAXI(TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 
       awuser: ?
     });
   endrule
+
+  `ifdef TAGCONTROLLER_BENCHMARKING
+  rule connectB (isInUse);
+  `else
   rule connectB;
+  `endif
     let b <- get(shimMaster.slave.b);
     shimSlave.master.b.put(AXI4_BFlit{
       bid: truncate(b.bid),
@@ -131,7 +150,12 @@ module mkNullTagControllerAXI(TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 
       buser: ?
     });
   endrule
+
+  `ifdef TAGCONTROLLER_BENCHMARKING
+  rule connectR (isInUse);
+  `else
   rule connectR;
+  `endif
     let r <- get(shimMaster.slave.r);
     shimSlave.master.r.put(AXI4_RFlit{
       rid: truncate(r.rid),
@@ -141,6 +165,7 @@ module mkNullTagControllerAXI(TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 
       ruser: ~0 // Fake it up; all tags are set.
     });
   endrule
+
   rule connectW;
     let w <- get(shimSlave.master.w);
     shimMaster.slave.w.put(AXI4_WFlit{
@@ -158,20 +183,61 @@ module mkNullTagControllerAXI(TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 
   endaction;
   interface slave  = shimSlave.slave;
   interface master = shimMaster.master;
+
 `ifdef PERFORMANCE_MONITORING
   method events = ?;
 `endif
+
+`ifdef TAGCONTROLLER_BENCHMARKING
+  method Action set_isInUse(Bool inUse);
+    // Need to clear to remove packets still in buffer
+    shimMaster.clear;
+    isInUse <= inUse;
+  endmethod
+  method Bool isIdle = True;
+`endif
+
+
 endmodule
-module mkTagControllerAXI(TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 8)))
+ 
+`ifdef TAGCONTROLLER_BENCHMARKING
+module mkTagControllerAXI#(Bool writeThroughOnly, Bool inUse)
+`else 
+module mkTagControllerAXI
+`endif
+  (TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 8)))
   provisos (Add#(a__, id_, CheriTransactionIDWidth), Add#(c__, addr_, 64));
-  let tmp <- mkDbgTagControllerAXI(Invalid);
+  let tmp <- mkDbgTagControllerAXI(
+    `ifdef TAGCONTROLLER_BENCHMARKING
+    writeThroughOnly,
+    inUse,
+    `endif
+    Invalid
+  );
   return tmp;
 endmodule
-module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 8)))
+
+module mkDbgTagControllerAXI#(
+  `ifdef TAGCONTROLLER_BENCHMARKING
+  Bool writeThroughOnly,
+  Bool inUse,
+  `endif
+  Maybe#(String) dbg
+)(TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 8)))
   provisos (Add#(a__, id_, CheriTransactionIDWidth), Add#(c__, addr_, 64));
+ 
+  `ifdef TAGCONTROLLER_BENCHMARKING
+  Reg#(Bool) isInUse <- mkReg(inUse);
+  `endif
+
   let    clk <- exposeCurrentClock;
   let newRst <- mkReset(0, True, clk);
-  TagControllerIfc tagCon <- mkTagController(reset_by newRst.new_rst);
+  TagControllerIfc tagCon <- mkTagController(
+    `ifdef TAGCONTROLLER_BENCHMARKING
+    writeThroughOnly,
+    `endif
+    reset_by newRst.new_rst
+  );
   //Workaround: these are being enqueued while full in Piccolo. Made the buffer size larger (32 from 4)
   AXI4_Shim#(id_, addr_, TMul#(CheriBusBytes, 8), 0, CapsPerFlit, 0, 1, CapsPerFlit) shimSlave  <- mkAXI4ShimBypassFIFOF;//mkAXI4ShimFF;
   AXI4_Shim#(SizeOf#(ReqId), addr_, TMul#(CheriBusBytes, 8), 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimBypassFIFOF;
@@ -224,6 +290,9 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,T
     CheriMemResponse mr <- tagCon.cache.response.get();
     AXI_Helpers::MemRsp#(id_) ar = mem2axi_rsp(mr);
     debug2("AXItagcontroller", $display("<time %0t TagController> AXI TagController response ", $time, fshow(ar)));
+    `ifdef TAGCONTROLLER_BENCHMARKING
+    debug2("AXItagcontroller", $display("<time %0t TagController> AXI Tagcontroller isInUse: ", $time, fshow(isInUse), " is init: ", fshow(writeThroughOnly)));
+    `endif
     case (ar) matches
     tagged Write .w: shimSlave.master.b.put(w);
     tagged Read  .r: shimSlave.master.r.put(r);
@@ -251,17 +320,32 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,T
       tagged Read .r: shimMaster.slave.ar.put(r);
     endcase
   endrule
+
   (* descending_urgency = "passMemoryResponseRead, passMemoryResponseWrite" *)
+  `ifdef TAGCONTROLLER_BENCHMARKING
+  rule passMemoryResponseWrite (isInUse);
+  `else
   rule passMemoryResponseWrite;
+  `endif
     let rsp <- get(shimMaster.slave.b);
     CheriMemResponse mr = axi2mem_rsp(Write(rsp));
     debug2("AXItagcontroller", $display("<time %0t TagController> AXI Memory write response ", $time, fshow(rsp)));
+    `ifdef TAGCONTROLLER_BENCHMARKING
+    debug2("AXItagcontroller", $display("<time %0t TagController> AXI Tagcontroller isInUse: ", $time, fshow(isInUse), " is init: ", fshow(writeThroughOnly)));
+    `endif
     tagCon.memory.response.put(mr);
   endrule
+  `ifdef TAGCONTROLLER_BENCHMARKING
+  rule passMemoryResponseRead (isInUse);
+  `else
   rule passMemoryResponseRead;
+  `endif
     let rsp <- get(shimMaster.slave.r);
     CheriMemResponse mr = axi2mem_rsp(Read(rsp));
     debug2("AXItagcontroller", $display("<time %0t TagController> AXI Memory read response ", $time, fshow(rsp)));
+    `ifdef TAGCONTROLLER_BENCHMARKING
+    debug2("AXItagcontroller", $display("<time %0t TagController> AXI Tagcontroller isInUse: ", $time, fshow(isInUse), " is init: ", fshow(writeThroughOnly)));
+    `endif
     tagCon.memory.response.put(mr);
   endrule
 
@@ -270,9 +354,20 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,T
     shimSlave.clear;
     shimMaster.clear;
   endaction;
+
   interface slave  = shimSlave.slave;
   interface master = shimMaster.master;
+
 `ifdef PERFORMANCE_MONITORING
   method events = tagCon.events;
+`endif
+
+`ifdef TAGCONTROLLER_BENCHMARKING
+  method Action set_isInUse(Bool inUse);
+    isInUse <= inUse;
+    // Need to clear to remove packets still in buffer
+    shimMaster.clear;
+  endmethod
+  method Bool isIdle = tagCon.isIdle;
 `endif
 endmodule

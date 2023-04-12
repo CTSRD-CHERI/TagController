@@ -64,7 +64,7 @@ import MultiLevelTagLookup::*;
  * the value in the tag cache (which is later written back to memory).
  *
  *****************************************************************************/
-
+ 
 // interface types
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -75,6 +75,9 @@ interface TagControllerIfc;
   interface Get#(ModuleEvents) cacheEvents;
   `elsif PERFORMANCE_MONITORING
   method EventsCacheCore events;
+  `endif
+  `ifdef TAGCONTROLLER_BENCHMARKING
+  method Bool isIdle;
   `endif
 endinterface
 
@@ -120,8 +123,11 @@ typedef struct {
 ///////////////////////////////////////////////////////////////////////////////
 
 (*synthesize*)
+`ifdef TAGCONTROLLER_BENCHMARKING
+module mkTagController#(Bool writeThroughOnly) (TagControllerIfc);
+`else
 module mkTagController(TagControllerIfc);
-
+`endif
   // constant parameters
   /////////////////////////////////////////////////////////////////////////////
 
@@ -136,6 +142,9 @@ module mkTagController(TagControllerIfc);
 
   // RUNTYPE: Null lookups
   TagLookupIfc tagLookup <- mkMultiLevelTagLookup(
+                                `ifdef TAGCONTROLLER_BENCHMARKING
+                                writeThroughOnly,
+                                `endif
                                 mID,
                                 unpack(fromInteger(table_end_addr)),
                                 tableStructure,
@@ -429,6 +438,10 @@ module mkTagController(TagControllerIfc);
   endinterface
   `elsif PERFORMANCE_MONITORING
   method events = tagLookup.events;
+  `endif
+
+  `ifdef TAGCONTROLLER_BENCHMARKING
+  method isIdle = tagLookup.isIdle;
   `endif
 
 endmodule

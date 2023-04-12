@@ -73,6 +73,9 @@ interface TagLookupIfc;
   `elsif PERFORMANCE_MONITORING
   method EventsCacheCore events;
   `endif
+  `ifdef TAGCONTROLLER_BENCHMARKING
+  method Bool isIdle;
+  `endif
 endinterface
 
 // internal types
@@ -111,6 +114,9 @@ function Bool andBool (Bool x, Bool y) = (x && y);
 */
 //XXX(* synthesize *) can't synthesize with polymorphic interface (=> parameter keyword useless...)
 module mkMultiLevelTagLookup #(
+`ifdef TAGCONTROLLER_BENCHMARKING
+  Bool writeThroughOnly,
+`endif
   // master ID to be used for memory requests
   parameter CheriMasterID mID,
   // ending address of the tags table
@@ -236,9 +242,16 @@ module mkMultiLevelTagLookup #(
   
   
   PulseWire                    getReq <- mkPulseWire();
+
   // tag cache CacheCore module
+`ifdef TAGCONTROLLER_BENCHMARKING
+  WriteMissBehaviour writeBehaviour = writeThroughOnly ? WriteThrough : WriteAllocate;
+`else 
+  WriteMissBehaviour writeBehaviour = WriteAllocate;
+`endif 
+
   CacheCore#(4, TSub#(Indices,2), 1)  tagCache <- mkCacheCore(
-    1, WriteAllocate, RespondAll, TCache,
+    1, writeBehaviour, RespondAll, TCache,
     zeroExtend(mReqs.remaining()), ff2fifof(mReqs), ff2fifof(mRsps));
 
   // current lookup's depth
@@ -443,16 +456,22 @@ module mkMultiLevelTagLookup #(
 
   // initialisation rule
   /////////////////////////////////////////////////////////////////////////////
-  rule initialise (state == Init);
-`ifdef BLUESIM
-`define NO_TAGTABLE_ZEROING
+
+`ifndef TAGCONTROLLER_BENCHMARKING
+  `ifdef BLUESIM
+    `define NO_TAGTABLE_ZEROING
+  `endif 
 `endif
 `ifdef RVFI_DII
 `define NO_TAGTABLE_ZEROING
 `endif
 `ifndef NO_TAGTABLE_ZEROING
-      TableLvl t = tableDesc[rootLvl];
-      // zero toplevel of tag table in memory
+  rule initialise (state == Init); 
+    TableLvl t = tableDesc[rootLvl];
+    // zero toplevel of tag table in memory
+    `ifdef TAGCONTROLLER_BENCHMARKING      
+    if (writeThroughOnly) begin
+    `endif
       if (zeroAddr < unpack(pack(t.startAddr) + fromInteger(t.size))) begin
         // prepare memory request
         CheriMemRequest mReq = defaultValue;
@@ -479,11 +498,23 @@ module mkMultiLevelTagLookup #(
         // increment transaction number and address
         transNum <= transNum + 1;
         zeroAddr.lineNumber <= zeroAddr.lineNumber + 1;
-      end else
-`endif
-    // when table zeroed, go to Serving state
-    state <= Idle;
+      end
+`ifdef TAGCONTROLLER_BENCHMARKING
+      else if (!useNextRsp.notEmpty) begin
+        //Wait for all outstaning responses to be processed
+        state <= Idle;
+      end
+    end else begin // don't zero if writeThroughOnly=False
+      state <= Idle;
+    end
+`endif 
   endrule
+`else // NO_TAGTABLE_ZEROING
+  rule initialise (state == Init);
+      // If not zeroing, go straight to Serving state
+      state <= Idle;
+  endrule
+`endif
 
   // Simply stuff "True" into commits because we never cancel transactions here
   /////////////////////////////////////////////////////////////////////////////
@@ -977,6 +1008,14 @@ module mkMultiLevelTagLookup #(
   method events = tagCache.events;
   `endif
 
+  `ifdef TAGCONTROLLER_BENCHMARKING
+  // Idle iff:
+  // - Not reading any tags
+  // - Not expecting any responses from tag cache
+  // - Not got any requests queued up to send to tag cache
+  method Bool isIdle = (state == Idle && !useNextRsp.notEmpty && !pendingTagReqs.notEmpty);
+  `endif
+
 endmodule
 
 
@@ -1075,4 +1114,8 @@ module mkNullMultiLevelTagLookup (TagLookupIfc);
     interface response = toCheckedPut(ff2fifof(mRsps));
   endinterface
 
+
+  `ifdef TAGCONTROLLER_BENCHMARKING
+  method Bool isIdle = !readReqs.notEmpty;
+  `endif
 endmodule
