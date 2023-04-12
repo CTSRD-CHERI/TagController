@@ -180,19 +180,51 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, 1, 0, 1, 1) axiSl
   // Address mapping
   Reg#(AddrMap) addrMap <- mkRegU;
 
-  Bool nextIsLoad = outstandingFIFO.first.isLoad;
-  // Fill response FIFO
-  rule handleWriteResponses (!nextIsLoad && axiSlave.b.canPeek);
-    outstandingFIFO.deq;
+  // Read responses from tag controller into buffers
+  // NOTE: Tag controller might respond out of order!!
+  // TODO: confirm that write -> read order is preserved for same address!
+  FIFOF#(AXI4_Types::AXI4_BFlit#(idWidth, 0)) writeResponses <- mkSizedFIFOF(4);
+  FIFOF#(AXI4_Types::AXI4_RFlit#(idWidth, 128, 1)) readResponses <- mkSizedFIFOF(4);
+
+  rule emptyWriteResponses(axiSlave.b.canPeek);
     let b <- get(axiSlave.b);
+    writeResponses.enq(b);
     debug2("memoryclient", $display("<time %0t MemoryClient> Write response received: ", $time, fshow(b)));
   endrule
-  rule handleReadResponses (nextIsLoad && axiSlave.r.canPeek);
-    outstandingFIFO.deq;
+  rule emptyReadResponses(axiSlave.r.canPeek);
     let r <- get(axiSlave.r);
+    readResponses.enq(r);
     debug2("memoryclient", $display("<time %0t MemoryClient> Read response received: ", $time, fshow(r)));
+  endrule
+
+  Bool nextIsLoad = outstandingFIFO.first.isLoad;
+  // Fill response FIFO
+  rule handleWriteResponses (!nextIsLoad && writeResponses.notEmpty);
+    let b = writeResponses.first;
+    writeResponses.deq();
+    outstandingFIFO.deq;
+    debug2("memoryclient", $display("<time %0t MemoryClient> Write response consumed: ", $time, fshow(b)));
+  endrule
+  rule handleReadResponses (nextIsLoad && readResponses.notEmpty);
+    let r = readResponses.first;
+    readResponses.deq();
+    outstandingFIFO.deq;
+    debug2("memoryclient", $display("<time %0t MemoryClient> Read response consumed: ", $time, fshow(r)));
     responseFIFO.enq(DataResponse(toData(r.ruser, r.rdata)));
   endrule
+
+  // rule debug;
+  //   $display("DEBUG: ", $time, "> ",
+  //     "responseFIFO.notFull: ", responseFIFO.notFull, " | ",
+  //     "responseFIFO.notEmpty: ", responseFIFO.notEmpty, " | ",
+  //     "outstandingFIFO.notFull: ", outstandingFIFO.notFull, " | ",
+  //     "outstandingFIFO.notEmpty: ", outstandingFIFO.notEmpty, " | ",
+  //     "nextIsLoad: ", nextIsLoad, " | ",
+  //     "b.canPeek: ", axiSlave.b.canPeek, " | ",
+  //     "r.canPeek: ", axiSlave.r.canPeek, " | ",
+  //     ""
+  //   );
+  // endrule
 
   // Functions
   function Action loadGeneric(Addr addr) =

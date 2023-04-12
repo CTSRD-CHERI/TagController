@@ -42,6 +42,7 @@ import BlueUtils :: *;
 import TagController::*;
 import FIFO::*;
 import FIFOF::*;
+import SpecialFIFOs::*;
 import Clocks :: *;
 import Debug::*;
 import Fabric_Defs::*;
@@ -174,7 +175,7 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,T
   //Workaround: these are being enqueued while full in Piccolo. Made the buffer size larger (32 from 4)
   AXI4_Shim#(id_, addr_, TMul#(CheriBusBytes, 8), 0, CapsPerFlit, 0, 1, CapsPerFlit) shimSlave  <- mkAXI4ShimBypassFIFOF;//mkAXI4ShimFF;
   AXI4_Shim#(SizeOf#(ReqId), addr_, TMul#(CheriBusBytes, 8), 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimBypassFIFOF;
-  let awreqff <- mkFIFOF;
+  let awreqff <- mkBypassFIFOF;
   let addrOffset <- mkReg(0);
   Reg#(Bool) writeBurst <- mkReg(False);
   Reg#(Bool) reset_done <- mkReg(False);
