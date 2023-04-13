@@ -290,9 +290,6 @@ module mkDbgTagControllerAXI#(
     CheriMemResponse mr <- tagCon.cache.response.get();
     AXI_Helpers::MemRsp#(id_) ar = mem2axi_rsp(mr);
     debug2("AXItagcontroller", $display("<time %0t TagController> AXI TagController response ", $time, fshow(ar)));
-    `ifdef TAGCONTROLLER_BENCHMARKING
-    debug2("AXItagcontroller", $display("<time %0t TagController> AXI Tagcontroller isInUse: ", $time, fshow(isInUse), " is init: ", fshow(writeThroughOnly)));
-    `endif
     case (ar) matches
     tagged Write .w: shimSlave.master.b.put(w);
     tagged Read  .r: shimSlave.master.r.put(r);
@@ -330,9 +327,6 @@ module mkDbgTagControllerAXI#(
     let rsp <- get(shimMaster.slave.b);
     CheriMemResponse mr = axi2mem_rsp(Write(rsp));
     debug2("AXItagcontroller", $display("<time %0t TagController> AXI Memory write response ", $time, fshow(rsp)));
-    `ifdef TAGCONTROLLER_BENCHMARKING
-    debug2("AXItagcontroller", $display("<time %0t TagController> AXI Tagcontroller isInUse: ", $time, fshow(isInUse), " is init: ", fshow(writeThroughOnly)));
-    `endif
     tagCon.memory.response.put(mr);
   endrule
   `ifdef TAGCONTROLLER_BENCHMARKING
@@ -343,9 +337,6 @@ module mkDbgTagControllerAXI#(
     let rsp <- get(shimMaster.slave.r);
     CheriMemResponse mr = axi2mem_rsp(Read(rsp));
     debug2("AXItagcontroller", $display("<time %0t TagController> AXI Memory read response ", $time, fshow(rsp)));
-    `ifdef TAGCONTROLLER_BENCHMARKING
-    debug2("AXItagcontroller", $display("<time %0t TagController> AXI Tagcontroller isInUse: ", $time, fshow(isInUse), " is init: ", fshow(writeThroughOnly)));
-    `endif
     tagCon.memory.response.put(mr);
   endrule
 

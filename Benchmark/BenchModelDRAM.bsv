@@ -46,8 +46,8 @@ import FIFO         :: *;
 import FIFOF        :: *;
 import Debug        :: *;
 import SourceSink   :: *;
-import RegFileAssoc :: *;
-import RegFileHash  :: *;
+import BenchRegFileAssoc :: *;
+import BenchRegFileHash  :: *;
 import BlueAXI4     :: *;
 import AXI_Helpers  :: *;
 

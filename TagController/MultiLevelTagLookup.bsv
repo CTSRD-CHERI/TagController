@@ -502,6 +502,11 @@ module mkMultiLevelTagLookup #(
 `ifdef TAGCONTROLLER_BENCHMARKING
       else if (!useNextRsp.notEmpty) begin
         //Wait for all outstaning responses to be processed
+        debug2("taglookup",
+          $display(
+          "<time %0t TagLookup> Finished zeroing tag cache. Init->Idle",
+          $time
+        ));
         state <= Idle;
       end
     end else begin // don't zero if writeThroughOnly=False
@@ -522,14 +527,16 @@ module mkMultiLevelTagLookup #(
     tagCache.nextWillCommit(True);
   endrule
 
-  // drain unused memory response when in Idle state (useful for unused write responses)
+  // drain unused tag response when in Idle state (useful for unused write responses)
   rule drainMemRsp (tagCache.response.canGet() && (getReq || !useNextRsp.first()));
-    let _ <- tagCache.response.get();
+    let resp <- tagCache.response.get();
     useNextRsp.deq();
     debug2("taglookup",
       $display(
-      "<time %0t TagLookup> Dequed memory request, getReq: %x, useNextRsp: %x, state: ",
-      $time, getReq, useNextRsp.first(), fshow(state)
+        "<time %0t TagLookup> Dequed tag response, getReq: %x, useNextRsp: %x, ",
+        $time, getReq, useNextRsp.first(),
+        "state: ", fshow(state), " | ",
+        "response: ", fshow(resp)
     ));
   endrule
 
@@ -552,7 +559,7 @@ module mkMultiLevelTagLookup #(
   // RUNTYPE: Buffer pending tag requests
   // Compiler thinks these comflict as both trigger doTransition
   // BUT process_pending_tag_requests only triggered in cycles where they do not conflict
-  (* conflict_free = "doLookup, process_pending_tag_requests, could_process" *)
+  (* conflict_free = "doLookup, process_pending_tag_requests" *)
   rule doLookup (state != Idle && state != Init && useNextRsp.notFull);
     // Common signals
     ///////////////////////////////////////////////////////////////////////////
@@ -759,7 +766,8 @@ module mkMultiLevelTagLookup #(
     end
   endrule 
 
-
+  /*
+  (* conflict_free = "doLookup, process_pending_tag_requests, could_process" *)
   rule could_process (aboutToIdle || state==Idle);
     debug2("taglookup", $display("<time %0t TagLookup> Could process a request.", $time,
       " aboutToIdle: ", fshow(aboutToIdle),
@@ -770,6 +778,7 @@ module mkMultiLevelTagLookup #(
       ""
     ));
   endrule
+  */
 
   // State==Idle if started current clock cycle with State==Idle
   // aboutToIdle has pulse if doLookup transitioned to Idle
