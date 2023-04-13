@@ -15,7 +15,6 @@ typedef 1 TagsPerLine;
 typedef 4 AXI_id_width;
 
 // Line stride is BYTES
-// `define LINE_STRIDE 10000024
 // `define LINE_STRIDE 128 // 8 * 128bit capabilities
 `define LINE_STRIDE 16 // 1 * 128bit capabilities
 
@@ -32,11 +31,7 @@ typedef TDiv#(SizeOf#(FileMemoryOp), 8) BytesPerMemop;
 (* synthesize *)
 module mkWriteTest (Empty);
 
-    // Sequential reads 
-    String targetFile = "dramtraces/sequential_reads.dat";
-    // // Sequential writes
-    // String targetFile = "dramtraces/sequential_writes.dat";
-
+    String targetFile = "dramtraces/toFile_output.dat";
 
     Reg#(File) file_handler <- mkReg(?);
 
@@ -183,10 +178,7 @@ module mkRequestsFromFile (Empty);
     mkConnection(tagcontroller_initialiser.master, dram, reset_by r.new_rst);
     mkConnection(tagcontroller_main.master, dram, reset_by r.new_rst);
    
-    // Sequential reads
-    String sourceFile = "dramtraces/sequential_reads.dat";
-    // // Sequential writes
-    // String sourceFile = "dramtraces/sequential_writes.dat";
+    String sourceFile = "dramtraces/fromFile_input.dat";
 
     mkFileToTagController(
         sourceFile, 
@@ -386,7 +378,12 @@ module mkFileToTagController#(
     endrule
     */
     
-    rule endBenchmark (done && !outstandingFIFO.notEmpty);
+    rule endBenchmark (
+        done && // All operations read out of file
+        use_main_axi && // Have switched over to main tag controller 
+        !outstandingFIFO.notEmpty && // Not waiting for any responses
+        !sourceFileOpsFIFO.notEmpty // No requests read from file but not sent to controller
+    );
         $finish(0);
     endrule
 

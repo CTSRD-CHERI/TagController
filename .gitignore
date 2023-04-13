@@ -7,3 +7,4 @@ TagController/TagTableStructure.bsv
 *.dat
 *.png
 *.pdf
+analysis/__pycache__
