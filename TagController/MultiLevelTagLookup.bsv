@@ -114,9 +114,6 @@ function Bool andBool (Bool x, Bool y) = (x && y);
 */
 //XXX(* synthesize *) can't synthesize with polymorphic interface (=> parameter keyword useless...)
 module mkMultiLevelTagLookup #(
-`ifdef TAGCONTROLLER_BENCHMARKING
-  Bool writeThroughOnly,
-`endif
   // master ID to be used for memory requests
   parameter CheriMasterID mID,
   // ending address of the tags table
@@ -244,12 +241,7 @@ module mkMultiLevelTagLookup #(
   PulseWire                    getReq <- mkPulseWire();
 
   // tag cache CacheCore module
-`ifdef TAGCONTROLLER_BENCHMARKING
-  WriteMissBehaviour writeBehaviour = writeThroughOnly ? WriteThrough : WriteAllocate;
-`else 
   WriteMissBehaviour writeBehaviour = WriteAllocate;
-`endif 
-
   CacheCore#(4, TSub#(Indices,2), 1)  tagCache <- mkCacheCore(
     1, writeBehaviour, RespondAll, TCache,
     zeroExtend(mReqs.remaining()), ff2fifof(mReqs), ff2fifof(mRsps));
@@ -470,7 +462,7 @@ module mkMultiLevelTagLookup #(
     TableLvl t = tableDesc[rootLvl];
     // zero toplevel of tag table in memory
     `ifdef TAGCONTROLLER_BENCHMARKING      
-    if (writeThroughOnly) begin
+    if (writeBehaviour == WriteThrough) begin
     `endif
       if (zeroAddr < unpack(pack(t.startAddr) + fromInteger(t.size))) begin
         // prepare memory request

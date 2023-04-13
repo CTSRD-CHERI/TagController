@@ -123,11 +123,7 @@ typedef struct {
 ///////////////////////////////////////////////////////////////////////////////
 
 (*synthesize*)
-`ifdef TAGCONTROLLER_BENCHMARKING
-module mkTagController#(Bool writeThroughOnly) (TagControllerIfc);
-`else
 module mkTagController(TagControllerIfc);
-`endif
   // constant parameters
   /////////////////////////////////////////////////////////////////////////////
 
@@ -142,9 +138,6 @@ module mkTagController(TagControllerIfc);
 
   // RUNTYPE: Null lookups
   TagLookupIfc tagLookup <- mkMultiLevelTagLookup(
-                                `ifdef TAGCONTROLLER_BENCHMARKING
-                                writeThroughOnly,
-                                `endif
                                 mID,
                                 unpack(fromInteger(table_end_addr)),
                                 tableStructure,

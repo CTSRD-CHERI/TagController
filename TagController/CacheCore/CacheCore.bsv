@@ -945,6 +945,12 @@ module mkCacheCore#(Integer cacheId,
             orderer.mastRsp(getRespId(memResp), uncachedResp, getLastField(memResp));
             debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> received write memory response with no response record, id: %x", 
                                           $time, cacheId, getRespId(memResp)));
+            /*
+            `ifdef TAGCONTROLLER_BENCHMARKING
+            // Only pass WriteThrough responses to multilevel tag controller once hear back from DRAM
+            if (writeBehaviour == WriteThrough) forceResponse = True;
+            `endif
+            */
           end
         end
         
@@ -1483,7 +1489,18 @@ module mkCacheCore#(Integer cacheId,
             // the response is coming later.
             if (conditional && (performWritethrough)) dead = True;
             if (supportInvalidates && writethroughNext.notEmpty && doMemRequest && !dead) writethroughNext.deq;
-            if (miss && (performWritethrough)) respValid = True;
+            if (miss && (performWritethrough)) begin
+              /*
+              debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Set valid because miss and performWritethrough", $time, cacheId));
+              `ifdef TAGCONTROLLER_BENCHMARKING
+              // Only pass WriteThrough responses to multilevel tag controller once hear back from DRAM
+              if(writeBehaviour == WriteAllocate) respValid = True;
+              `else
+              respValid = True;
+              `endif
+              */
+              respValid = True;
+            end
           end
         end
 

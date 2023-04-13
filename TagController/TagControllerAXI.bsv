@@ -52,6 +52,9 @@ import Vector :: *;
 import CacheCore :: *;
 `endif
 
+import TagTableStructure::*;
+import Vector :: *;
+
 /******************************************************************************
  * mkTagControllerAXI
  *
@@ -201,7 +204,7 @@ module mkNullTagControllerAXI
 endmodule
  
 `ifdef TAGCONTROLLER_BENCHMARKING
-module mkTagControllerAXI#(Bool writeThroughOnly, Bool inUse)
+module mkTagControllerAXI#(Bool inUse)
 `else 
 module mkTagControllerAXI
 `endif
@@ -209,7 +212,6 @@ module mkTagControllerAXI
   provisos (Add#(a__, id_, CheriTransactionIDWidth), Add#(c__, addr_, 64));
   let tmp <- mkDbgTagControllerAXI(
     `ifdef TAGCONTROLLER_BENCHMARKING
-    writeThroughOnly,
     inUse,
     `endif
     Invalid
@@ -219,7 +221,6 @@ endmodule
 
 module mkDbgTagControllerAXI#(
   `ifdef TAGCONTROLLER_BENCHMARKING
-  Bool writeThroughOnly,
   Bool inUse,
   `endif
   Maybe#(String) dbg
@@ -233,9 +234,6 @@ module mkDbgTagControllerAXI#(
   let    clk <- exposeCurrentClock;
   let newRst <- mkReset(0, True, clk);
   TagControllerIfc tagCon <- mkTagController(
-    `ifdef TAGCONTROLLER_BENCHMARKING
-    writeThroughOnly,
-    `endif
     reset_by newRst.new_rst
   );
   //Workaround: these are being enqueued while full in Piccolo. Made the buffer size larger (32 from 4)
@@ -302,6 +300,7 @@ module mkDbgTagControllerAXI#(
   rule passMemoryRequest;
     CheriMemRequest mr <- tagCon.memory.request.get();
     DRAMReq#(SizeOf#(ReqId), addr_) ar = mem2axi_req(mr);
+    // debug2("AXItagcontroller", $display("<time %0t TagController> AXI Memory request (CMM): ", $time, fshow(mr)));
     debug2("AXItagcontroller", $display("<time %0t TagController> AXI Memory request ", $time, fshow(ar)));
     case (ar) matches
       tagged Write .w: begin
@@ -360,5 +359,332 @@ module mkDbgTagControllerAXI#(
     shimMaster.clear;
   endmethod
   method Bool isIdle = tagCon.isIdle;
+`endif
+endmodule
+
+
+typedef enum {Zeroing, WaitingForReq, GettingRootTags, WritingRootTags, GettingLeafTags, WritingLeafTags, ReturnWriteResponse} State deriving (Bits,FShow,Eq);
+ 
+typedef struct {
+  CheriPhyAddr startAddr;
+  Integer size;
+  Integer shiftAmnt;
+  Integer groupFactor;
+  Integer groupFactorLog;
+} TableLvl deriving (FShow);
+
+// Can be used for initialising the tag table in DRAM
+// - Starts by zeroing the root tag table 
+// - When given a write, sets tags for that address and forwards data
+// - If tag set causes 0->1 root transition, writes all 0s in leaf
+// - Write responses ids are meaningless!! 
+module mkWriteAndSetTagControllerAXI#(
+  `ifdef TAGCONTROLLER_BENCHMARKING
+  Bool inUse
+  `endif
+)(TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 8)))
+  provisos (
+    Add#(a__, id_, CheriTransactionIDWidth), 
+    Add#(c__, addr_, 64)
+    // Add#(c__, 36, addr_)
+  );
+
+  let    clk <- exposeCurrentClock;
+  let newRst <- mkReset(0, True, clk);
+ 
+  `ifdef TAGCONTROLLER_BENCHMARKING
+  Reg#(Bool) isInUse <- mkReg(False);
+  `endif
+
+  //Workaround: these are being enqueued while full in Piccolo. Made the buffer size larger (32 from 4)
+  AXI4_Shim#(id_, addr_, TMul#(CheriBusBytes, 8), 0, CapsPerFlit, 0, 1, CapsPerFlit) shimSlave  <- mkAXI4ShimBypassFIFOF;//mkAXI4ShimFF;
+  AXI4_Shim#(SizeOf#(ReqId), addr_, TMul#(CheriBusBytes, 8), 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimBypassFIFOF;
+  
+  let awreqff <- mkBypassFIFOF;
+  let addrOffset <- mkReg(0);
+  Reg#(Bool) reset_done <- mkReg(False);
+
+  rule propagateReset(!reset_done);
+      newRst.assertReset;
+      shimSlave.clear;
+      shimMaster.clear;
+      reset_done <= True;
+  endrule
+
+  rule getCacheAW;
+    let awreq <- get(shimSlave.master.aw);
+    awreqff.enq(awreq);
+  endrule
+
+  Int#(40) table_end_addr = fromInteger(TagTableStructure::table_end_addr);
+  Int#(40) table_start_addr = fromInteger(TagTableStructure::table_start_addr);
+  Int#(40) covered_start_addr = fromInteger(TagTableStructure::covered_start_addr);
+
+  function TableLvl lvlDesc (Integer d);
+    Integer sz;
+    // leaf lvl
+    sz = div(covered_mem_size,8*valueof(CapBytes));
+    TableLvl tlvl = TableLvl {
+          startAddr: unpack(pack(table_end_addr)-fromInteger(sz)),
+          size: sz,
+          shiftAmnt: 0,
+          groupFactor: 0,
+          groupFactorLog: 0
+      };
+    // root lvt
+    if (d > 0) begin
+      TableLvl t = lvlDesc(d-1);
+      sz = div(t.size, tableStructure[d]);
+      tlvl = TableLvl {
+          startAddr: unpack(pack(t.startAddr)-fromInteger(sz)),
+          size: sz,
+          shiftAmnt: t.shiftAmnt + log2(tableStructure[d]),
+          groupFactor: tableStructure[d],
+          groupFactorLog: log2(tableStructure[d])
+      };
+    end
+    tlvl.startAddr.byteOffset = 0;
+    return tlvl;
+  endfunction
+  // table descriptor has leaf lvl 0 ---> root lvl 1
+  Vector#(2,TableLvl) tableDesc = genWith(lvlDesc);
+
+  function ActionValue#(CheriPhyBitAddr) getTableAddr(int cd, CheriMemRequest req) = actionvalue
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> Identifying tag addr for req: ", $time, fshow(req)));
+    
+    CheriCapAddress capAddr = unpack(pack(req.addr) - pack(covered_start_addr));
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> capAddr: ", $time, fshow(capAddr)));
+    
+    CapNumber cn = capAddr.capNumber;
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> capNumber: ", $time, fshow(cn)));
+    
+    TableLvl t = tableDesc[cd];
+    CheriPhyBitAddr bitAddr = unpack(zeroExtend(cn >> t.shiftAmnt));
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> bitAddr relative: ", $time, fshow(bitAddr)));
+    
+    bitAddr.byteAddr = unpack(pack(bitAddr.byteAddr) + pack(t.startAddr));
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> bitAddr final: ", $time, fshow(bitAddr)));
+    return bitAddr;
+  endactionvalue;
+
+  Reg#(Bit#(8)) idCount <- mkReg(0);
+
+  Reg#(State) state <- mkReg(Zeroing);
+  Reg#(CheriMemRequest) request <- mkReg(?);
+  Reg#(Bool) rootWasZero <- mkReg(?);
+
+  function Action sendGetTags(CheriPhyAddr byte_addr, String level) = action 
+
+    Bit#(64) tmp = zeroExtend(pack(byte_addr) & (~0 << pack(cheriBusBytes)));
+
+    AXI4_ARFlit#(SizeOf#(MemTypesCHERI::ReqId), addr_, 0) tag_req = defaultValue;
+    tag_req.arid = truncate(idCount);
+    idCount <= idCount + 1;
+    tag_req.araddr = truncate(tmp);
+    tag_req.arsize = 16; //TODO (what size to put here?)
+    tag_req.arcache = 4'b1011; //TODO (what to put here?)
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> Sending %s tag read request: ", $time, level, fshow(tag_req)));
+    shimMaster.slave.ar.put(tag_req);
+  endaction;
+
+  function Action sendNewTags(CheriPhyAddr byte_addr, Bit#(128) new_tags,  String level) = action 
+    // Write the new tags
+    Bit#(64) tmp = zeroExtend(pack(byte_addr) & (~0 << pack(cheriBusBytes)));
+
+    AXI4_AWFlit#(SizeOf#(MemTypesCHERI::ReqId), addr_, 0) rootUpdateReq = defaultValue;
+    rootUpdateReq.awid = truncate(idCount);
+    idCount <= idCount + 1;
+    rootUpdateReq.awaddr = truncate(tmp);
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> Sending %s tag awflit: ", $time, level, fshow(rootUpdateReq)));
+    shimMaster.slave.aw.put(rootUpdateReq);
+    
+    AXI4_WFlit#(TMul#(CheriBusBytes, 8), 0) updateReq = defaultValue;
+    updateReq.wdata = new_tags;
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> Sending %s tag wflit: ", $time, level, fshow(updateReq)));
+    shimMaster.slave.w.put(updateReq);
+
+  endaction;    
+
+  `ifdef TAGCONTROLLER_BENCHMARKING
+  let not_expecting_dram_responses = state==WaitingForReq;
+  `else
+  let not_expecting_dram_responses = state==WaitingForReq;
+  `endif
+
+  rule passDataWrite (state==WaitingForReq);
+    let awreq = awreqff.first;
+    let wreq <- get(shimSlave.master.w);
+    if (wreq.wlast) begin
+      addrOffset <= 0;
+      awreqff.deq;
+    end else begin
+      $display("PANIC: only bursts of length 1 supported here");
+    end
+    let mreq = axi2mem_req(Write(WriteReqFlit{aw: awreq, w: wreq}));
+  
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> Received new write request: ", $time, fshow(mreq)));
+    
+    // Forward the data component of the write
+    AXI4_AWFlit#(SizeOf#(MemTypesCHERI::ReqId), addr_, 0) dataAddrReq = defaultValue;
+    dataAddrReq.awid = truncate(idCount);
+    idCount <= idCount + 1;
+    dataAddrReq.awaddr = awreq.awaddr;
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> Sending awflit: ", $time, fshow(dataAddrReq)));
+    shimMaster.slave.aw.put(dataAddrReq);
+    
+    AXI4_WFlit#(TMul#(CheriBusBytes, 8), 0) dataReq = defaultValue;
+    dataReq.wdata = wreq.wdata;
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> Sending wflit: ", $time, fshow(dataReq)));
+    shimMaster.slave.w.put(dataReq);
+    
+    request <= mreq;
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> TRANSITIONING: WaitingForReq->GettingRootTags", $time));
+    state <= GettingRootTags;
+  endrule
+
+  Reg#(CheriPhyAddr) zeroAddr <- mkReg(unpack(pack(table_start_addr)));
+  FF#(Bool, 4) zeros_without_resp <- mkUGFFDebug("TagLookup_useNextRsp");
+
+  rule doZeroing (state == Zeroing); 
+    TableLvl t = tableDesc[1];
+    if (zeroAddr < unpack(pack(t.startAddr) + fromInteger(t.size))) begin
+      // prepare memory request
+      Bit#(128) tags = 0;
+      sendNewTags(zeroAddr,tags,"zeroing root");
+
+      zeros_without_resp.enq(?);
+      
+      zeroAddr.lineNumber <= zeroAddr.lineNumber + 1;
+    end else if (!zeros_without_resp.notEmpty) begin
+      //Wait for all outstaning responses to be processed
+      debug2("AXItagwriter", $display("<time %0t AXItagwriter> TRANSITIONING: Zeroing->WaitingForReq", $time));
+      state <= WaitingForReq;
+    end
+  endrule
+
+  rule drainZeroingResps (state == Zeroing); 
+    let b <- get(shimMaster.slave.b);
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> Received zeroing write resposne: ", $time, fshow(b)));
+    zeros_without_resp.deq();
+  endrule
+
+  rule getCurrentRootTags (state==GettingRootTags);
+    // Get data write response before proceeding
+    let b <- get(shimMaster.slave.b);
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> Received data write resposne: ", $time, fshow(b)));
+    
+    let root_bit_addr <- getTableAddr(1,request);
+    sendGetTags(root_bit_addr.byteAddr, "root");
+    
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> TRANSITIONING: GettingRootTags->WritingRootTags", $time));
+    state <= WritingRootTags;
+  endrule
+  
+  rule updatingRootTags (state==WritingRootTags);
+    // Get data write response before proceeding
+    let curr_tag_data <- get(shimMaster.slave.r);
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> Received root tag response: ", $time, fshow(curr_tag_data)));
+   
+    let root_bit_addr <- getTableAddr(1,request);
+    Bit#(128) root_tags = curr_tag_data.rdata;
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> Current root tags: ", $time, fshow(root_tags)));
+
+
+    // Need to explicity inform that is 128 bits long or << will wrap around
+    Bit#(128) new_tags_set = 1;
+    // Need to extend this otherwise multiplying by 8 wraps it round
+    Bit#(7) byte_offset = zeroExtend(root_bit_addr.byteAddr.byteOffset);
+    new_tags_set = (
+      // We are setting tags only!
+      (new_tags_set << (8 * byte_offset)) 
+      << root_bit_addr.bitOffset
+    );
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> Root bit address: ", $time, fshow(root_bit_addr)));
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> Tags being set: ", $time, fshow(new_tags_set)));
+
+    if ((root_tags & new_tags_set)==0) rootWasZero <= True;
+    else rootWasZero <= False;
+
+    root_tags = root_tags | new_tags_set;
+
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> New root tags: ", $time, fshow(root_tags)));
+
+    sendNewTags(root_bit_addr.byteAddr, root_tags, "root");
+    
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> TRANSITIONING: WritingRootTags->GettingLeafTags", $time));
+    state <= GettingLeafTags;
+  endrule
+
+  rule getCurrentLeafTags (state==GettingLeafTags);
+    // Get data write response before proceeding
+    let b <- get(shimMaster.slave.b);
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> Received root tag write response: ", $time, fshow(b)));
+    
+    let leaf_bit_addr <- getTableAddr(0,request);
+    sendGetTags(leaf_bit_addr.byteAddr, "leaf");
+
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> TRANSITIONING: GettingLeafTags->WritingLeafTags", $time));
+    state <= WritingLeafTags;
+  endrule
+
+  rule updatingleafTags (state==WritingLeafTags);
+    // Get data write response before proceeding
+    let curr_tag_data <- get(shimMaster.slave.r);
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> Received leaf tag response: ", $time, fshow(curr_tag_data)));
+   
+    let leaf_bit_addr <- getTableAddr(0,request);
+    Bit#(128) leaf_tags = curr_tag_data.rdata;
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> Current leaf tags: ", $time, fshow(leaf_tags)));
+
+    // Need to explicity inform that is 128 bits long or << will wrap around
+    Bit#(128) new_tags_set = 1;
+    // Need to extend this otherwise multiplying by 8 wraps it round
+    Bit#(7) byte_offset = zeroExtend(leaf_bit_addr.byteAddr.byteOffset);
+    new_tags_set = (
+      // We are setting tags only!
+      (new_tags_set << (8 * byte_offset)) 
+      << leaf_bit_addr.bitOffset
+    );
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> Leaf bit address: ", $time, fshow(leaf_bit_addr)));
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> Tags being set: ", $time, fshow(new_tags_set)));
+
+    if (rootWasZero) leaf_tags = new_tags_set;
+    else leaf_tags = leaf_tags | new_tags_set;
+
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> New leaf tags: ", $time, fshow(leaf_tags)));
+
+    sendNewTags(leaf_bit_addr.byteAddr, leaf_tags, "leaf");
+    
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> TRANSITIONING: WritingLeafTags->ReturnWriteResponse", $time));
+    state <= ReturnWriteResponse;
+  endrule
+
+  rule returnWriteResponse (state==ReturnWriteResponse);
+    let b <- get(shimMaster.slave.b);
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> Received leaf  tag write response: ", $time, fshow(b)));
+
+    AXI4_BFlit#(id_,0) bflit = defaultValue;
+    shimSlave.master.b.put(bflit);
+
+    debug2("AXItagwriter", $display("<time %0t AXItagwriter> TRANSITIONING: ReturnWriteResponse->WaitingForReq", $time));
+    state <= WaitingForReq;
+  endrule
+
+  method clear if (reset_done) = action
+    newRst.assertReset;
+    shimSlave.clear;
+    shimMaster.clear;
+  endaction;
+
+  interface slave  = shimSlave.slave;
+  interface master = shimMaster.master;
+
+`ifdef TAGCONTROLLER_BENCHMARKING
+  method Action set_isInUse(Bool inUse);
+    isInUse <= inUse;
+    // Need to clear to remove packets still in buffer
+    shimMaster.clear;
+  endmethod
+  method Bool isIdle = state==WaitingForReq;
 `endif
 endmodule

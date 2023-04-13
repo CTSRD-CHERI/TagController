@@ -146,8 +146,7 @@ module mkRequestsFromFile (Empty);
     MakeResetIfc r <- mkReset(0, True, clk);
 
     // Used to setup initial DRAM state
-    TagControllerAXI#(AXI_id_width,AddressLength,CacheLineLength) tagcontroller_initialiser <- mkTagControllerAXI(
-        True, // Is the initialiser
+    TagControllerAXI#(AXI_id_width,AddressLength,CacheLineLength) tagcontroller_initialiser <- mkWriteAndSetTagControllerAXI(
         True, // Start off connected to DRAM
         reset_by r.new_rst
     );
@@ -157,13 +156,11 @@ module mkRequestsFromFile (Empty);
     // RUNTYPE: ALL NULL
     // 4 bit id width
     TagControllerAXI#(AXI_id_width,AddressLength,CacheLineLength) tagcontroller_main <- mkTagControllerAXI(
-        False, // Is NOT the initialiser
         False, // Start off NOT connected to DRAM
         reset_by r.new_rst
     );
     /*
     TagControllerAXI#(4,AddressLength,CacheLineLength) tagcontroller_main <- mkNullTagControllerAXI(
-        // No option to be the initialiser
         False, // Start off NOT connected to DRAM
         reset_by r.new_rst
     );
