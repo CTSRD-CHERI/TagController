@@ -18,8 +18,11 @@ typedef 4 AXI_id_width;
 // `define LINE_STRIDE 128 // 8 * 128bit capabilities
 `define LINE_STRIDE 16 // 1 * 128bit capabilities
 
+`define NORMAL_INPUT_FILE "dramtraces/fromFile_input.dat"
+`define PIPED_INPUT_FILE "dramtraces/fromFile_input.pipe"
+
 typedef struct {
-  Bit#(8) op_type; // 0 if Read, 1 if Write, 2 if End of initialising
+  Bit#(8) op_type; // 0 if Read, 1 if Write, 2 if End of initialising, 3 if end of file
   Bit#(AddressLength) address; // 64 bit address
   Bit#(CacheLineLength) data; // 128 bit cache lines
   Bit#(8) tags; // tag bits per cache line (round up to 1 byte)
@@ -175,10 +178,7 @@ module mkRequestsFromFile (Empty);
     mkConnection(tagcontroller_initialiser.master, dram, reset_by r.new_rst);
     mkConnection(tagcontroller_main.master, dram, reset_by r.new_rst);
    
-    String sourceFile = "dramtraces/fromFile_input.dat";
-
     mkFileToTagController(
-        sourceFile, 
         tagcontroller_initialiser,
         tagcontroller_main,
         reset_by r.new_rst
@@ -186,7 +186,6 @@ module mkRequestsFromFile (Empty);
 endmodule
     
 module mkFileToTagController#(
-    String sourceFile,
     TagControllerAXI#(
         AXI_id_width,
         AddressLength,
@@ -234,10 +233,17 @@ module mkFileToTagController#(
 
 
     rule open_file (!opened);
-        File file_obj <- $fopen(sourceFile, "r");
-        file_handler <= file_obj;
+        Bool use_pipe <- $test$plusargs("pipe");
+        if (use_pipe) begin 
+            File file_obj <- $fopen(`PIPED_INPUT_FILE, "r");
+            file_handler <= file_obj;
+            debug2("benchmark", $display("<time %0t Benchmark> File opened: ", $time, fshow(`PIPED_INPUT_FILE)));
+        end else begin
+            File file_obj <- $fopen(`NORMAL_INPUT_FILE, "r");
+            file_handler <= file_obj;
+            debug2("benchmark", $display("<time %0t Benchmark> File opened: ", $time, fshow(`NORMAL_INPUT_FILE)));
+        end
         opened <= True;
-        debug2("benchmark", $display("<time %0t Benchmark> File opened: ", $time, fshow(sourceFile)));
     endrule
 
     function ActionValue#(Bit#(8)) getByte(File f) =
@@ -267,15 +273,20 @@ module mkFileToTagController#(
         // Dodgy but sound way of detecting when got to end of the file!
         // op_type should always be 0 (read) or 1 (write) but at end of the file
         // will never read this if at end of file.
-        if(op.op_type > 2)
+        if (op.op_type < 3) 
         begin
-            $display("ERROR: Could not get byte from %s", sourceFile);
-            $fclose ( file_handler );
-            done <= True;
-        end
-        else begin
             debug2("benchmark", $display("<time %0t Benchmark> Read from file:", $time, fshow(op)));
             sourceFileOpsFIFO.enq(op);
+        end else if(op.op_type == 3)
+        begin
+            $display("Reached end of file!");
+            $fclose ( file_handler );
+            done <= True;
+        end else 
+        begin 
+            $display("EEK!!! Read invalid op: ", fshow(op));
+            $fclose ( file_handler );
+            done <= True;
         end
     endrule
 
