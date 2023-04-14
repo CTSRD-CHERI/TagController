@@ -1,6 +1,7 @@
 READ = 0
 WRITE = 1
 END_INIT = 2
+TERMINATE = 3
 
 
 class MemoryOp:
@@ -36,7 +37,17 @@ class MemoryOp:
         )
 
 
-class RequestSeq:
+class RequestGenerator:
+    """
+    Class with ops_iterator() function that yields MemoryOp objects
+    """
+
+    def ops_iterator(self):
+        yield (MemoryOp(END_INIT))
+        yield (MemoryOp(TERMINATE))
+
+
+class FullRequestSeq(RequestGenerator):
     """
     Full DRAM request trace including initialising writes
 
@@ -46,6 +57,20 @@ class RequestSeq:
     def __init__(self):
         self.init_reqs = []
         self.main_reqs = []
+
+        self.switching_op = MemoryOp(
+            END_INIT,
+            address=0xDEADBEEF,
+            data=0x00AAAA0000AAAA0000AAAA00FEEBDAED,
+            tags=0x20,
+        )
+
+        self.terminate_op = MemoryOp(
+            TERMINATE,
+            address=0xDEADDEAD,
+            data=0x00BBBB0000BBBB0000BBBB00DEADDEADD,
+            tags=0x30,
+        )
 
     def add_read(self, address, init=False):
         read_op = MemoryOp(READ, address)
@@ -61,6 +86,17 @@ class RequestSeq:
         else:
             self.main_reqs += [write_op]
 
+    def ops_iterator(self):
+        for r in self.init_reqs:
+            yield r
+
+        yield self.switching_op
+
+        for r in self.main_reqs:
+            yield r
+
+        yield self.terminate_op
+
     def __repr__(self):
         init_reqs_str = ""
         main_reqs_str = ""
@@ -71,9 +107,10 @@ class RequestSeq:
         return "" + "Init reqs:\n" + init_reqs_str + "Main reqs:\n" + main_reqs_str
 
     def __str__(self):
-        init_output_string = ""
-        for r in self.init_reqs:
-            init_output_string += r.__str__()
+        output_string = ""
+        for op in self.ops_iterator():
+            output_string += op.__str__()
+        return output_string
 
         # Noticeable string so it stands out as special operation
         switching_op = MemoryOp(

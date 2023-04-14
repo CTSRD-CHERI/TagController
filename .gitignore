@@ -8,3 +8,4 @@ TagController/TagTableStructure.bsv
 *.png
 *.pdf
 analysis/__pycache__
+dramtraces/*
