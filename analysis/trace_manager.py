@@ -1,7 +1,28 @@
+import asyncio
+import gzip
+import struct
+
 READ = 0
 WRITE = 1
 END_INIT = 2
 TERMINATE = 3
+
+# # Format for struct.unpack to use with gzip traces
+# struct trace_entry_t      # 24 bytes per operation
+# {
+#     uint8_t type;         # 1 byte "b"
+#     uint8_t tag;          # 1 byte "b"
+#     uint16_t size;        # 2 bytes "h"
+#                           # 4 bytes padding "xxxx"
+#     uintptr_t vaddr;      # 4 bytes "I" (only want bottom 32 bits)
+#                           # 4 bytes padding "xxxx"
+#     uintptr_t paddr;      # 4 bytes "I" (only want bottom 32 bits)
+#                           # 4 bytes padding "xxxx"
+# };
+# Files were given to me in little endian format "<"
+STRUCT_FORMAT = "<bbhxxxxIxxxxIxxxx"
+
+MAX_PADDR = 16**7 - 1 # Ignore top nibble to prevent clashing with tag table
 
 
 class MemoryOp:
@@ -112,17 +133,54 @@ class FullRequestSeq(RequestGenerator):
             output_string += op.__str__()
         return output_string
 
-        # Noticeable string so it stands out as special operation
-        switching_op = MemoryOp(
-            END_INIT,
-            address=0xDEADBEEF,
-            data=0x00AAAA0000AAAA0000AAAA00FEEBDAED,
-            tags=0x20,
-        )
-        switching_output_string = f"{switching_op}"
 
-        main_output_string = ""
-        for r in self.main_reqs:
-            main_output_string += r.__str__()
+class GZIPRequestGenerator(RequestGenerator):
+    """
+    Extracts requests from gzipped trace file
+    """
 
-        return init_output_string + switching_output_string + main_output_string
+    def __init__(self, input_file):
+        self.input_file = input_file
+
+    def __repr__(self):
+        return f"GZIPRequestGenerator({self.input_file})"
+
+    def ops_iterator(self):
+        yield MemoryOp(END_INIT)
+        with gzip.open(self.input_file, "rb") as f:
+            for _ in range(1000000):
+                op = f.read(24)
+                (op_type, tags, size, vaddr, paddr) = struct.unpack(STRUCT_FORMAT, op)
+                # print(
+                #     (
+                #         f"type: {op_type:0>2x}, "
+                #         + f"tags: {tags:0>8b}, "
+                #         + f"size: {size}, "
+                #         + f"vaddr: {vaddr:0>8x}, "
+                #         + f"paddr: {paddr:0>8x}"
+                #     )
+                # )
+
+                ## TRANSLATE op_type to READ or WRITE
+                # enum trace_entry_type_t
+                # {
+                #     TRACE_ENTRY_TYPE_INSTR, //instruction load
+                #     TRACE_ENTRY_TYPE_LOAD,
+                #     TRACE_ENTRY_TYPE_STORE,
+                #     TRACE_ENTRY_TYPE_CLOAD,  //capability load
+                #     TRACE_ENTRY_TYPE_CSTORE, //capability store
+                # };
+                is_store = op_type == 2 or op_type == 4
+
+                trunc_paddr = paddr & MAX_PADDR
+                if tags > 1:
+                    print("TAGS TOO LARGE")
+                    exit(1)
+                my_op = MemoryOp(
+                    WRITE if is_store else READ,
+                    address=trunc_paddr,
+                    data=paddr,
+                    tags=tags,
+                )
+                # print(f" -> {my_op.__repr__()}")
+                yield my_op

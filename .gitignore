@@ -9,3 +9,4 @@ TagController/TagTableStructure.bsv
 *.pdf
 analysis/__pycache__
 dramtraces/*
+output.txt
