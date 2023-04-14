@@ -248,7 +248,9 @@ module mkTagController(TagControllerIfc);
   Bool slvCanGet = tagRsp.v || untrackedResponse;
 
   // Calculate peek of memory request interface.
+  // RUNTYPE: tag cache gets dram priority
   CheriMemRequest memoryGetPeek = (mReqBurst.notEmpty) ? mReqs.first:tagLookup.memory.request.peek();
+  // CheriMemRequest memoryGetPeek = (!tagLookup.memory.request.canGet) ? mReqs.first:tagLookup.memory.request.peek();
   Bool memoryCanGet = mReqBurst.notEmpty || tagLookup.memory.request.canGet;
 
   // Comment in when debugging flow control.
@@ -395,7 +397,9 @@ module mkTagController(TagControllerIfc);
       method Bool canGet() = memoryCanGet;
       method CheriMemRequest peek() = memoryGetPeek;
       method ActionValue#(CheriMemRequest) get() if (memoryCanGet);
+        // RUNTYPE: tag cache gets dram priority
         if (mReqBurst.notEmpty) begin
+        // if (!tagLookup.memory.request.canGet) begin
           if (getLastField(mReqs.first)) mReqBurst.deq();
           mReqs.deq();
         end

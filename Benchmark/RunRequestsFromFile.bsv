@@ -162,12 +162,12 @@ module mkRequestsFromFile (Empty);
         False, // Start off NOT connected to DRAM
         reset_by r.new_rst
     );
-    /*
-    TagControllerAXI#(4,AddressLength,CacheLineLength) tagcontroller_main <- mkNullTagControllerAXI(
-        False, // Start off NOT connected to DRAM
-        reset_by r.new_rst
-    );
-    */
+    
+    // TagControllerAXI#(4,AddressLength,CacheLineLength) tagcontroller_main <- mkNullTagControllerAXI(
+    //     False, // Start off NOT connected to DRAM
+    //     reset_by r.new_rst
+    // );
+    
     
     // Initialises with alternatign 1s and 0s
     AXI4_Slave#(
