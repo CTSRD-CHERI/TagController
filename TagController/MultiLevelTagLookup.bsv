@@ -113,6 +113,12 @@ function Bool andBool (Bool x, Bool y) = (x && y);
   descending_urgency = "initialise,drainMemRsp,readTagState,setTagState"
 */
 //XXX(* synthesize *) can't synthesize with polymorphic interface (=> parameter keyword useless...)
+
+
+// RUNTYPE: Buffer pending tag requests
+// Compiler thinks these comflict as both trigger doTransition
+// BUT process_pending_tag_requests only triggered in cycles where they do not conflict
+(* conflict_free = "doLookup, process_pending_tag_requests" *)
 module mkMultiLevelTagLookup #(
   // master ID to be used for memory requests
   parameter CheriMasterID mID,
@@ -548,10 +554,6 @@ module mkMultiLevelTagLookup #(
   // As this calls doTransition, it requires that tagCacheReq is not full!
   // Fixable by simply making tagCacheReq >= 2
   
-  // RUNTYPE: Buffer pending tag requests
-  // Compiler thinks these comflict as both trigger doTransition
-  // BUT process_pending_tag_requests only triggered in cycles where they do not conflict
-  (* conflict_free = "doLookup, process_pending_tag_requests" *)
   rule doLookup (state != Idle && state != Init && useNextRsp.notFull);
     // Common signals
     ///////////////////////////////////////////////////////////////////////////
@@ -772,6 +774,87 @@ module mkMultiLevelTagLookup #(
   endrule
   */
 
+
+  function Action handle_new_request (CheriTagRequest req);
+    return (
+      action
+        // next state to go to
+        State nextState  = Idle;
+        // check whether we are in the covered region
+        Bool doTagLookup = isCovered(req.addr);
+        // initialise future pending tags
+        LineTags newPendingTags = unpack(0);
+        LineTags newPendingCapEnable = unpack(0);
+        // initialise a toplevel table lookup
+        CheriCapAddress capAddr = unpack(pack(req.addr) - pack(coveredStrtAddr));
+        CheriMemRequest mReq = craftTagReadReq (rootLvl,capAddr.capNumber);
+        case (req.operation) matches
+          // when it's a read
+          //////////////////////////////
+          tagged Read: begin
+            readReqs.enq(doTagLookup);
+            nextState = ReadTag;
+          end
+          // when it's a write
+          //////////////////////////////
+          tagged Write .wop: begin
+            // get cap tags
+            LineTags capTags = wop.tags;
+            LineTags capEnable = wop.writeEnable;
+            // and cap tags with cap enable
+            LineTags andTags = zipWith(andBool,capTags,capEnable);
+            // update new pending tags
+            newPendingTags = capTags;
+            newPendingCapEnable = capEnable;
+            //check wether to write anything or not
+            function Bool isTrue  (Bool x) = x == True;
+            function Bool isFalse (Bool x) = x == False;
+            if (all(isFalse,capEnable)) begin
+              nextState = Idle;
+              doTagLookup = False;
+            end else if (all(isFalse,andTags)) begin
+              // when all tags to write are 0
+              nextState = ClearTag;
+            end else begin
+              // when writing at least a 1
+              mReq = craftTagWriteReq(rootLvl,capAddr.capNumber,capTags,capEnable,tagged Invalid);
+              nextState = SetTag;
+            end
+          end
+          // ignore other types of requests
+          default: begin
+            doTagLookup = False;
+            nextState = Idle;
+          end
+        endcase
+        // when a lookup is required
+        if (doTagLookup) begin
+          pendingCapNumber <= capAddr.capNumber;
+          pendingTags      <= newPendingTags;
+          pendingCapEnable <= newPendingCapEnable;
+          debug2("taglookup",
+            $display(
+              "<time %0t TagLookup> Starting lookup with capNum = ",
+              $time, fshow(capAddr.capNumber),
+              " ( pending tags = ", fshow(newPendingTags),
+              ", pending cap enable = ",fshow(newPendingCapEnable)," )"
+          ));
+
+          doTransition(tagged Valid mReq,rootLvl,nextState,True);
+          debug2("taglookup",
+            $display("<time %0t TagLookup> Transitioning: pendingCapNumber %x, currentDepth %d -> %d, state ",
+            $time, capAddr.capNumber, currentDepth, rootLvl, fshow(Idle), " -> ", fshow(nextState)
+          ));
+
+        end else debug2("taglookup",
+          $display(
+            "<time %0t TagLookup> memory not covered",
+            $time
+        ));
+      endaction
+    );
+  endfunction
+
   // State==Idle if started current clock cycle with State==Idle
   // aboutToIdle has pulse if doLookup transitioned to Idle
   rule process_pending_tag_requests ((aboutToIdle || state==Idle) && pendingTagReqs.notEmpty && tagCacheReq.notFull);
@@ -784,79 +867,7 @@ module mkMultiLevelTagLookup #(
         $time, fshow(req)
     ));
 
-    // next state to go to
-    State nextState  = Idle;
-    // check whether we are in the covered region
-    Bool doTagLookup = isCovered(req.addr);
-    // initialise future pending tags
-    LineTags newPendingTags = unpack(0);
-    LineTags newPendingCapEnable = unpack(0);
-    // initialise a toplevel table lookup
-    CheriCapAddress capAddr = unpack(pack(req.addr) - pack(coveredStrtAddr));
-    CheriMemRequest mReq = craftTagReadReq (rootLvl,capAddr.capNumber);
-    case (req.operation) matches
-      // when it's a read
-      //////////////////////////////
-      tagged Read: begin
-        readReqs.enq(doTagLookup);
-        nextState = ReadTag;
-      end
-      // when it's a write
-      //////////////////////////////
-      tagged Write .wop: begin
-        // get cap tags
-        LineTags capTags = wop.tags;
-        LineTags capEnable = wop.writeEnable;
-        // and cap tags with cap enable
-        LineTags andTags = zipWith(andBool,capTags,capEnable);
-        // update new pending tags
-        newPendingTags = capTags;
-        newPendingCapEnable = capEnable;
-        //check wether to write anything or not
-        function Bool isTrue  (Bool x) = x == True;
-        function Bool isFalse (Bool x) = x == False;
-        if (all(isFalse,capEnable)) begin
-          nextState = Idle;
-          doTagLookup = False;
-        end else if (all(isFalse,andTags)) begin
-          // when all tags to write are 0
-          nextState = ClearTag;
-        end else begin
-          // when writing at least a 1
-          mReq = craftTagWriteReq(rootLvl,capAddr.capNumber,capTags,capEnable,tagged Invalid);
-          nextState = SetTag;
-        end
-      end
-      // ignore other types of requests
-      default: begin
-        doTagLookup = False;
-        nextState = Idle;
-      end
-    endcase
-    // when a lookup is required
-    if (doTagLookup) begin
-      pendingCapNumber <= capAddr.capNumber;
-      pendingTags      <= newPendingTags;
-      pendingCapEnable <= newPendingCapEnable;
-      debug2("taglookup",
-        $display(
-          "<time %0t TagLookup> Starting lookup with capNum = ",
-          $time, fshow(capAddr.capNumber),
-          " ( pending tags = ", fshow(newPendingTags),
-          ", pending cap enable = ",fshow(newPendingCapEnable)," )"
-      ));
-
-      doTransition(tagged Valid mReq,rootLvl,nextState,True);
-      debug2("taglookup",
-        $display("<time %0t TagLookup> Transitioning: pendingCapNumber %x, currentDepth %d -> %d, state ",
-        $time, capAddr.capNumber, currentDepth, rootLvl, fshow(Idle), " -> ", fshow(nextState)
-      ));
-
-    end else debug2("taglookup",
-      $display(
-        "<time %0t TagLookup> memory not covered",
-        $time
-    ));
+    handle_new_request(req)();
   endrule
 
   // module Slave interface
@@ -873,8 +884,19 @@ module mkMultiLevelTagLookup #(
       // tag request
       //////////////////////////////
       // RUNTYPE: Buffer pending tag requests
-      /*
+      //
       // OLD VERSION
+      // NOTE: To remove buffering ONLY can just call handle_new_request():
+      //
+      // method Action put(CheriTagRequest req) if (state == Idle);
+      //   debug2("taglookup",
+      //   $display(
+      //       "<time %0t TagLookup> received request ",
+      //       $time, fshow(req)
+      //   ));
+      //   handle_new_request(req)();
+      // endmethod
+      /*
       method Action put(CheriTagRequest req) if (state == Idle);
         debug2("taglookup",
           $display(
