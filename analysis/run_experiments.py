@@ -16,7 +16,8 @@ class Experiment:
         print("Starting process")
         fromfile_process = await asyncio.create_subprocess_exec(
             f"output/fromfile",
-            "+benchmark",
+            "+tracing",
+            # "+benchmark",
             # "+tagcontroller",
             "+pipe",
             stdout=log_file,

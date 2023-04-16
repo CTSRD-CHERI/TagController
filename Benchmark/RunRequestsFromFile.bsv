@@ -223,7 +223,7 @@ module mkFileToTagController#(
 
     // Ensure that initialiser is not expecting any more DRAM responses
     rule switch_to_main_slave (end_of_init && !outstandingFIFO.notEmpty && tc_initialiser.isIdle);
-        debug2("benchmark", $display("<time %0t Benchmark> Switching to main tag controller!", $time));
+        $display("<time %0t Benchmark> Switching to main tag controller!", $time);
         tc_initialiser.set_isInUse(False);
         tc_main.set_isInUse(True);
         use_main_axi <= True;
@@ -280,7 +280,7 @@ module mkFileToTagController#(
             sourceFileOpsFIFO.enq(op);
         end else if(op.op_type == 3)
         begin
-            $display("Reached end of file!");
+            debug2("benchmark", $display("<time %0t Benchmark> Reached end of file!", $time));
             $fclose ( file_handler );
             done <= True;
         end else 
@@ -314,6 +314,15 @@ module mkFileToTagController#(
             addrReq.arcache = 4'b1011; //TODO (what to put here?)
             
             debug2("benchmark", $display("<time %0t Benchmark> Sending Load: ", $time, fshow(addrReq)));
+            
+            if (use_main_axi) begin
+                debug2("tracing", $display(
+                    "<time %0t Tracing> ", $time, fshow(idCount), " ",
+                    "sent to tag controller | read"
+                ));
+            end
+
+
             currentAxiSlave.ar.put(addrReq);
 
             outstandingFIFO.enq(next_op);
@@ -333,6 +342,14 @@ module mkFileToTagController#(
             addrReq.awcache = 4'b1011;
 
             debug2("benchmark", $display("<time %0t Benchmark> Sending Write Address request: ", $time, fshow(addrReq)));
+
+            if (use_main_axi) begin
+                debug2("tracing", $display(
+                    "<time %0t Tracing> ", $time, fshow(idCount), " ",
+                    "sent to tag controller | write | ", fshow(tags[0])
+                ));
+            end
+
             currentAxiSlave.aw.put(addrReq);
     
             AXI4_WFlit#(128, 1) dataReq = defaultValue;
@@ -360,6 +377,11 @@ module mkFileToTagController#(
         outstandingFIFO.deq;
         let b <- get(tc_main.slave.b);
         debug2("benchmark", $display("<time %0t Benchmark> Write response received: ", $time, fshow(b)));
+
+        debug2("tracing", $display(
+            "<time %0t Tracing> ", $time, fshow(b.bid), " ",
+            "return from tag controller"
+        ));
     endrule
     rule handleWriteResponses_init (tc_initialiser.slave.b.canPeek);
         outstandingFIFO.deq;
@@ -371,6 +393,12 @@ module mkFileToTagController#(
         outstandingFIFO.deq;
         let r <- get(tc_main.slave.r);
         debug2("benchmark", $display("<time %0t Benchmark> Read response received: ", $time, fshow(r)));
+
+
+        debug2("tracing", $display(
+            "<time %0t Tracing> ", $time, fshow(r.rid), " ",
+            "return from tag controller | ", fshow(r.ruser[0])
+        ));
     endrule
     rule handleReadResponses_init (tc_initialiser.slave.r.canPeek);
         outstandingFIFO.deq;

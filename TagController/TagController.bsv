@@ -183,7 +183,16 @@ module mkTagController(TagControllerIfc);
   rule getTagLookupResponse;
     CheriTagResponse tags <- tagLookup.cache.response.get();
     LookupReqInfo lookup = pendingLookups.first;
+
     debug2("tagcontroller", $display("<time %0t TagController> Completed lookup response: ", $time, fshow(lookup.id), " - ", fshow(LookupRspInfo{rsp: tags, tagOnlyRead: lookup.tagOnlyRead})));
+    
+    `ifdef TAGCONTROLLER_BENCHMARKING
+    debug2("tracing", $display(
+      "<time %0t Tracing> ", $time, fshow(tags.bench_id), " ",
+      "return from tag lookup"
+    ));  
+    `endif   
+
     lookupRsp.enq(lookup.id, LookupRspInfo{rsp: tags, tagOnlyRead: lookup.tagOnlyRead});
     pendingLookups.deq;
   endrule
@@ -193,8 +202,15 @@ module mkTagController(TagControllerIfc);
     let tagReq = pendingLookupRequests.first();
     pendingLookupRequests.deq();
 
-    debug2("tagcontroller", $display("<time %0t TagController> Sending request to tagLookup: ", $time, " ", fshow(tagReq)));    
-          
+    debug2("tagcontroller", $display("<time %0t TagController> Sending request to tagLookup: ", $time, " ", fshow(tagReq))); 
+
+    `ifdef TAGCONTROLLER_BENCHMARKING
+    debug2("tracing", $display(
+      "<time %0t Tracing> ", $time, fshow(tagReq.bench_id), " ",
+      "sent to tag lookup"
+    )); 
+    `endif      
+
     tagLookup.cache.request.put(tagReq);
   endrule
 
@@ -278,10 +294,19 @@ module mkTagController(TagControllerIfc);
     interface CheckedPut request;
       method Bool canPut() = slvCanPut;
       method Action put(CheriMemRequest req) if (slvCanPut);
+        ReqId id = getReqId(req);
+
         let lineAlignedAddr = pack(req.addr);
         Bit#(TLog#(CpuLineSize)) zero = 0;
         lineAlignedAddr = {truncateLSB(lineAlignedAddr),zero};
-        CheriTagRequest tagReq = CheriTagRequest {addr: unpack(lineAlignedAddr), operation: tagged Read};
+        CheriTagRequest tagReq = CheriTagRequest {
+          `ifdef TAGCONTROLLER_BENCHMARKING
+          bench_id: id.transactionID,
+          `endif
+          addr: unpack(lineAlignedAddr), 
+          operation: tagged Read
+        };
+
         debug2("tagcontroller", $display("<time %0t TagController> New request: ", $time, fshow(req)));
         if (req.operation matches tagged Write .wop &&& req.addr >= unpack(fromInteger(table_start_addr)) && req.addr < unpack(fromInteger(table_end_addr))) begin
           req.operation = tagged Write {
@@ -295,7 +320,6 @@ module mkTagController(TagControllerIfc);
           };
           debug2("tagcontroller", $display("<time %0t TagController> Nullified request as it was for the tag table: ", $time, fshow(req)));
         end
-        ReqId id = getReqId(req);
         Bool tagOnlyRead = False;
         if (req.operation matches tagged Read .rop &&& rop.tagOnlyRead) begin
             tagOnlyRead = True;
