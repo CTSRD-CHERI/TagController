@@ -808,15 +808,7 @@ module mkMultiLevelTagLookup #(
           tagged Leaf .ts: begin
             // unconditionally write a zero at the current level
             newCacheReq = tagged Valid craftTagWriteReq(leafLvl,pendingCapNumber,pendingTags,pendingCapEnable,tagged Invalid);
-
-            `ifdef TAGCONTROLLER_BENCHMARKING
-            debug2("tracing", $display(
-              "<time %0t Tracing> ", $time, fshow(pendingBenchID), " ",
-              "end LEAF | read"
-            )); 
-            `endif
-
-            
+          
             // if not a flat table...
             if (leafLvl != rootLvl) begin
               // If our old tags were zero and the new ones were writing are zero, fold zeroes up.
@@ -831,10 +823,23 @@ module mkMultiLevelTagLookup #(
                 `ifdef TAGCONTROLLER_BENCHMARKING
                 debug2("tracing", $display(
                   "<time %0t Tracing> ", $time, fshow(pendingBenchID), " ",
-                  "start LEAF | write | FOLDING | IGNORED"
+                  "end LEAF | read | FOLDING"
+                )); 
+                debug2("tracing", $display(
+                  "<time %0t Tracing> ", $time, fshow(pendingBenchID), " ",
+                  "start LEAF | write | IGNORED"
                 )); 
                 `endif
-              end else newState = Idle;
+              end else begin
+                newState = Idle;
+
+                `ifdef TAGCONTROLLER_BENCHMARKING
+                debug2("tracing", $display(
+                  "<time %0t Tracing> ", $time, fshow(pendingBenchID), " ",
+                  "end LEAF | read | NO FOLD"
+                )); 
+                `endif
+              end
             end
             // otherwise jump back to Idle State
             else newState = Idle;
