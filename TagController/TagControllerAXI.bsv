@@ -85,7 +85,11 @@ module mkNullTagControllerAXI#(Bool inUse)
 module mkNullTagControllerAXI
 `endif
   (TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 8)))
-  provisos (Add#(a__, id_, CheriTransactionIDWidth), Add#(c__, addr_, 64),Add#(b__, id_, 8));
+  provisos (
+    Add#(a__, id_, CheriTransactionIDWidth), 
+    Add#(b__, id_, SizeOf#(ReqId)), 
+    Add#(c__, addr_, 64)
+  );
 
   `ifdef TAGCONTROLLER_BENCHMARKING
   Reg#(Bool) isInUse <- mkReg(inUse);
@@ -226,7 +230,7 @@ module mkDbgTagControllerAXI#(
   Maybe#(String) dbg
 )(TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 8)))
   provisos (Add#(a__, id_, CheriTransactionIDWidth), Add#(c__, addr_, 64));
- 
+
   `ifdef TAGCONTROLLER_BENCHMARKING
   Reg#(Bool) isInUse <- mkReg(inUse);
   `endif
@@ -385,6 +389,7 @@ module mkWriteAndSetTagControllerAXI#(
 )(TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 8)))
   provisos (
     Add#(a__, id_, CheriTransactionIDWidth), 
+    Add#(b__, id_, SizeOf#(ReqId)), 
     Add#(c__, addr_, 64)
     // Add#(c__, 36, addr_)
   );
@@ -467,7 +472,7 @@ module mkWriteAndSetTagControllerAXI#(
     return bitAddr;
   endactionvalue;
 
-  Reg#(Bit#(8)) idCount <- mkReg(0);
+  Reg#(Bit#(id_)) idCount <- mkReg(0);
 
   Reg#(State) state <- mkReg(Zeroing);
   Reg#(CheriMemRequest) request <- mkReg(?);
@@ -478,7 +483,7 @@ module mkWriteAndSetTagControllerAXI#(
     Bit#(64) tmp = zeroExtend(pack(byte_addr) & (~0 << pack(cheriBusBytes)));
 
     AXI4_ARFlit#(SizeOf#(MemTypesCHERI::ReqId), addr_, 0) tag_req = defaultValue;
-    tag_req.arid = truncate(idCount);
+    tag_req.arid = zeroExtend(idCount);
     idCount <= idCount + 1;
     tag_req.araddr = truncate(tmp);
     tag_req.arsize = 16; //TODO (what size to put here?)
@@ -492,7 +497,7 @@ module mkWriteAndSetTagControllerAXI#(
     Bit#(64) tmp = zeroExtend(pack(byte_addr) & (~0 << pack(cheriBusBytes)));
 
     AXI4_AWFlit#(SizeOf#(MemTypesCHERI::ReqId), addr_, 0) rootUpdateReq = defaultValue;
-    rootUpdateReq.awid = truncate(idCount);
+    rootUpdateReq.awid = zeroExtend(idCount);
     idCount <= idCount + 1;
     rootUpdateReq.awaddr = truncate(tmp);
     debug2("AXItagwriter", $display("<time %0t AXItagwriter> Sending %s tag awflit: ", $time, level, fshow(rootUpdateReq)));
@@ -526,7 +531,7 @@ module mkWriteAndSetTagControllerAXI#(
     
     // Forward the data component of the write
     AXI4_AWFlit#(SizeOf#(MemTypesCHERI::ReqId), addr_, 0) dataAddrReq = defaultValue;
-    dataAddrReq.awid = truncate(idCount);
+    dataAddrReq.awid = zeroExtend(idCount);
     idCount <= idCount + 1;
     dataAddrReq.awaddr = awreq.awaddr;
     debug2("AXItagwriter", $display("<time %0t AXItagwriter> Sending awflit: ", $time, fshow(dataAddrReq)));

@@ -57,19 +57,19 @@ module mkModelDRAMGeneric#
                    , Bit#(128)
                    ) ram                      // For storage
          )
-         (AXI4_Slave#(8, addrWidth, 128, 0, 0, 0, 0, 0))
+         (AXI4_Slave#(SizeOf#(MemTypesCHERI::ReqId), addrWidth, 128, 0, 0, 0, 0, 0))
          provisos (Add#(wordAddrWidth, 4, addrWidth)
          );
 
-  AXI4_Shim#(8, addrWidth, 128, 0, 0, 0, 0, 0) shim <- mkAXI4Shim();
+  AXI4_Shim#(SizeOf#(MemTypesCHERI::ReqId), addrWidth, 128, 0, 0, 0, 0, 0) shim <- mkAXI4Shim();
 
   // Slave interface
-  FIFOF#(DRAMReq#(8, addrWidth)) preReqFifo <- mkSizedFIFOF(maxOutstandingReqs);
-  FIFOF#(DRAMRsp#(8)) respFifo   <- mkFIFOF;
+  FIFOF#(DRAMReq#(SizeOf#(MemTypesCHERI::ReqId), addrWidth)) preReqFifo <- mkSizedFIFOF(maxOutstandingReqs);
+  FIFOF#(DRAMRsp#(SizeOf#(MemTypesCHERI::ReqId))) respFifo   <- mkFIFOF;
 
   // Internal request FIFO contains requests and a flag which denotes
   // the last read request in a burst read.
-  FIFOF#(Tuple2#(DRAMReq#(8,addrWidth), Bool))  reqFifo <- mkFIFOF;
+  FIFOF#(Tuple2#(DRAMReq#(SizeOf#(MemTypesCHERI::ReqId),addrWidth), Bool))  reqFifo <- mkFIFOF;
 
   // Storage implemented as a register file
   //RegFile#(Bit#(addrWidth), Bit#(256)) ram <- mkRegFileFull;
@@ -97,14 +97,14 @@ module mkModelDRAMGeneric#
   // Unroll burst read requests
   rule unrollBurstReads;
     // Extract request
-    DRAMReq#(8,addrWidth) req  = preReqFifo.first;
+    DRAMReq#(SizeOf#(MemTypesCHERI::ReqId),addrWidth) req  = preReqFifo.first;
 
     // Only dequeue read request if burst read finished
     Bool last = False;
     if (req matches tagged Read .r)
       begin
         Bit#(addrWidth) addr = r.araddr;
-        AXI4_ARFlit#(8, addrWidth, 0) newR = r;
+        AXI4_ARFlit#(SizeOf#(MemTypesCHERI::ReqId), addrWidth, 0) newR = r;
         // Update address to account for bursts
         newR.araddr = addr + (zeroExtend(pack(burstReadCount)) << 4);
         newR.araddr[3:0] = 0;
@@ -145,7 +145,7 @@ module mkModelDRAMGeneric#
     Bit#(128) data = ram.sub(wordAddr);
 
     // Defualt response
-    DRAMRsp#(8) resp = ?;
+    DRAMRsp#(SizeOf#(MemTypesCHERI::ReqId)) resp = ?;
     Bool validResponse = False;
 
     case (req) matches
@@ -204,7 +204,7 @@ endmodule
 // Version using a standard register file
 module mkModelDRAM#
          ( Integer maxOutstandingReqs )       // Max outstanding requests
-         (AXI4_Slave#(8, addrWidth, 128, 0, 0, 0, 0, 0))
+         (AXI4_Slave#(SizeOf#(MemTypesCHERI::ReqId), addrWidth, 128, 0, 0, 0, 0, 0))
          provisos (Add#(wordAddrWidth, 4, addrWidth));
   RegFile#(Bit#(wordAddrWidth), Bit#(128)) ram <- mkRegFileFull;
   let dram <- mkModelDRAMGeneric(maxOutstandingReqs, ram);
@@ -215,7 +215,7 @@ endmodule
 // the advantage of being efficiently resettable to a predefined state.
 module mkModelDRAMAssoc#
          ( Integer maxOutstandingReqs )         // Max outstanding requests
-         (AXI4_Slave#(8, addrWidth, 128, 0, 0, 0, 0, 0))
+         (AXI4_Slave#(SizeOf#(MemTypesCHERI::ReqId), addrWidth, 128, 0, 0, 0, 0, 0))
          provisos (Add#(wordAddrWidth, 4, addrWidth));
   RegFile#(Bit#(wordAddrWidth), Bit#(128)) ram <- mkRegFileAssoc;
   let dram <- mkModelDRAMGeneric(maxOutstandingReqs, ram);

@@ -12,7 +12,7 @@ import Debug::*;
 typedef 32 AddressLength;
 typedef 128 CacheLineLength;
 typedef 1 TagsPerLine;
-typedef 4 AXI_id_width;
+typedef `BenchmarkIDWidth AXI_id_width;
 
 // Line stride is BYTES
 // `define LINE_STRIDE 128 // 8 * 128bit capabilities
@@ -171,7 +171,7 @@ module mkRequestsFromFile (Empty);
     
     // Initialises with alternatign 1s and 0s
     AXI4_Slave#(
-        8, AddressLength, CacheLineLength, 0, 0, 0, 0, 0
+        SizeOf#(MemTypesCHERI::ReqId), AddressLength, CacheLineLength, 0, 0, 0, 0, 0
     ) dram <- BenchModelDRAM::mkModelDRAM(4, reset_by r.new_rst);
 
     // Only the one with isInUse set will consume DRAM responses
@@ -205,7 +205,7 @@ module mkFileToTagController#(
     Reg#(Bit#(64)) simulationTime <- mkReg(0);
 
     // What id to use for next op
-    Reg#(Bit#(8)) idCount <- mkReg(0);
+    Reg#(Bit#(AXI_id_width)) idCount <- mkReg(0);
     // FIFO storing details of outstanding loads/stores
     FIFOF#(FileMemoryOp) outstandingFIFO <- mkSizedFIFOF(16);
 
@@ -229,6 +229,7 @@ module mkFileToTagController#(
         use_main_axi <= True;
         process_new_requests <= True;
         end_of_init <= False;
+        idCount <= 0;
     endrule
 
 
