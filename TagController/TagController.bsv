@@ -52,6 +52,7 @@ import CacheCore::*;
 `endif
 //import TagLookup::*;
 import MultiLevelTagLookup::*;
+import PipelinedTagLookup::*;
 
 /******************************************************************************
  * mkTagController
