@@ -61,6 +61,7 @@ class LogConsumer:
         # Request end times (for throughput)
         self.start_time = 0
         self.end_times = []
+        self.total_tag_lookups = 0
 
     # Update records as instructed by new log line
     def update(self, line):
@@ -126,14 +127,16 @@ class LogConsumer:
             if record.type == "READ":
                 # print(f"Read done: {id}")
 
+                num_tag_ops = 2 if record.need_leaf else 1
                 self.reads.append(
                     Record(
                         req_dur=record.tc_dur,
                         look_dur=record.tl_dur,
-                        num_tag_ops=2 if record.need_leaf else 1,
+                        num_tag_ops=num_tag_ops,
                         need_leaf=record.need_leaf,
                     )
                 )
+                self.total_tag_lookups += num_tag_ops
                 self.active_ids.pop(id)
                 return
 
@@ -163,14 +166,16 @@ class LogConsumer:
             if record.returned and record.seen_leaf:
                 # print(f"Set done: {id}")
 
+                num_tag_ops = 2 if record.need_leaf else 1
                 self.sets.append(
                     Record(
                         req_dur=record.tc_dur,
                         look_dur=0,
-                        num_tag_ops=2 if record.need_leaf else 1,
+                        num_tag_ops=num_tag_ops,
                         need_leaf=record.need_leaf,
                     )
                 )
+                self.total_tag_lookups += num_tag_ops
                 self.active_ids.pop(id)
                 return
 
@@ -179,17 +184,20 @@ class LogConsumer:
             if record.returned and record.seen_leaf and record.seen_folding:
                 # print(f"Clear done: {id}")
 
+                if record.folding:
+                    num_tag_ops = 4
+                else:
+                    num_tag_ops = 3 if record.need_leaf else 1
                 self.clears.append(
                     Record(
                         req_dur=record.tc_dur,
                         look_dur=0,
-                        num_tag_ops=4
-                        if record.folding
-                        else (3 if record.need_leaf else 1),
+                        num_tag_ops=num_tag_ops,
                         need_leaf=record.need_leaf,
                         folding=record.folding,
                     )
                 )
+                self.total_tag_lookups += num_tag_ops
                 self.active_ids.pop(id)
                 return
 
@@ -207,16 +215,26 @@ class LogConsumer:
         end = self.end_times[-1]
         duration = (end - start) // 10
         requests = len(self.end_times)
-        ops_per_req = duration / requests
+
+        num_tag_ops = self.total_tag_lookups
+        ops_per_request = num_tag_ops / requests
+        tag_op_throughput = num_tag_ops / duration
+
+        cycles_per_req = duration / requests
         throughput = requests / duration
         return (
             f"Performance:\n"
-            + f" Start time: {start}\n"
-            + f" End time: {end}\n"
-            + f" Duration: {duration}\n"
-            + f" Requests: {requests}\n"
-            + f" Cycles per request: {ops_per_req}\n"
-            + f" Throughput: {throughput}\n"
+            # + f" Start time: {start}\n"
+            # + f" End time:   {end}\n"
+            + f" Duration:   {duration}\n"
+            + f" \n"
+            + f" Requests:   {requests}\n"
+            + f" Cycles per request: {cycles_per_req}\n"
+            + f" Requests per cycle: {throughput}\n"
+            + f" \n"
+            + f" Cache ops:  {num_tag_ops}\n"
+            + f" Cache ops per request: {ops_per_request}\n"
+            + f" Cache ops per cycle:   {tag_op_throughput}\n"
         )
 
     def __repr__(self):

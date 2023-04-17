@@ -22,7 +22,7 @@ TERMINATE = 3
 # Files were given to me in little endian format "<"
 STRUCT_FORMAT = "<bbhxxxxIxxxxIxxxx"
 
-MAX_PADDR = 16**7 - 1 # Ignore top nibble to prevent clashing with tag table
+MAX_PADDR = 16**7 - 1  # Ignore top nibble to prevent clashing with tag table
 
 
 class MemoryOp:
@@ -147,6 +147,7 @@ class GZIPRequestGenerator(RequestGenerator):
 
     def ops_iterator(self):
         yield MemoryOp(END_INIT)
+
         with gzip.open(self.input_file, "rb") as f:
             for _ in range(1000000):
                 op = f.read(24)
@@ -184,3 +185,5 @@ class GZIPRequestGenerator(RequestGenerator):
                 )
                 # print(f" -> {my_op.__repr__()}")
                 yield my_op
+
+        yield MemoryOp(TERMINATE)
