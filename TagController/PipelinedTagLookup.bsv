@@ -383,22 +383,22 @@ module mkPipelinedTagLookup #(
   Reg#(CheriTransactionID) rootTransNum <- mkConfigReg(0);
 
   // Used when consuming respones
-  FFBag#(
+  Bag#(
     TagOpsInFlight,     // Number of fifos
     CheriTransactionID, // Key type
-    RequestInfo,        // Data type
-    TagOpsInFlight      // Depth of each fifo
-  ) inFlightRootReqs <- mkFFBag;
+    RequestInfo        // Data type
+  ) inFlightRootReqs <- mkSmallBag();
   
   // If there might be a fold later then stall
-  // 2 ports so can unstall and issue req in same cycle
-  Reg#(Bool) rootStalled[2] <- mkCReg(2, False);
+  // multiple ports so can unstall and issue req in same cycle
+  // can set stalled to false after either root lookup (no bubble)
+  // or leaf lookup (1 bubble)
+  Reg#(Bool) rootStalled[3] <- mkCReg(3, False);
 
   // Pending fold requests - if valid has priority over others
   // NOTE no new fold requests will be created until previous one is sent
   // due to stalls. So no need to worry about enq to full fold request
-  // Can't use bypass fifo as can set in 2 places (after root or leaf lookups)
-  Reg#(VnD#(ProcessedRequest)) foldRequest[3] <- mkCReg(3, VnD{v: False, d:?});
+  FF#(ProcessedRequest,1) foldRequests <- mkUGFFBypass();
 
   // Pending root requests
   FF#(ProcessedRequest, 1) pendingRootReqs <- mkUGFFBypass();
@@ -520,17 +520,18 @@ module mkPipelinedTagLookup #(
 
   // 
   rule issueRootRequest (
-    rootCache.canPut 
-    && 
+    rootCache.canPut && 
     (
       (pendingRootReqs.notEmpty && !rootStalled[1]) 
       || 
-      foldRequest[2].v
-    )
+      foldRequests.notEmpty
+    ) &&
+    // Don't let there be two requests in flight with same ID!
+    !inFlightRootReqs.isMember(rootTransNum).v
   );
-    if (foldRequest[2].v) begin 
-      let mReq = foldRequest[2].d.req;
-      let req_info = foldRequest[2].d.info;
+    if (foldRequests.notEmpty) begin 
+      let mReq = foldRequests.first.req;
+      let req_info = foldRequests.first.info;
 
       mReq.transactionID = rootTransNum;
 
@@ -540,15 +541,15 @@ module mkPipelinedTagLookup #(
       ));
       debug2("taglookup", $display( 
         "<time %0t TagLookup> ", $time,
-        "Sent request info: ", fshow(req_info)
+        "Sent to root with request info: ", fshow(req_info)
       ));
 
       rootCache.put(mReq);
 
-      inFlightRootReqs.enq(rootTransNum, req_info);
+      inFlightRootReqs.insert(rootTransNum, req_info);
       
       rootTransNum <= rootTransNum + 1;
-      foldRequest[2] <= VnD{v: False, d: ?};
+      foldRequests.deq();
     end else if (pendingRootReqs.notEmpty) begin 
       let mReq = pendingRootReqs.first.req;
       let req_info = pendingRootReqs.first.info;
@@ -561,11 +562,11 @@ module mkPipelinedTagLookup #(
       ));
       debug2("taglookup", $display( 
         "<time %0t TagLookup> ", $time,
-        "Sent request info: ", fshow(req_info)
+        "Sent to root with request info: ", fshow(req_info)
       ));
       rootCache.put(mReq);
 
-      inFlightRootReqs.enq(rootTransNum, req_info);
+      inFlightRootReqs.insert(rootTransNum, req_info);
       
       rootTransNum <= rootTransNum + 1;
       pendingRootReqs.deq();
@@ -574,6 +575,17 @@ module mkPipelinedTagLookup #(
 
   // Root tag responses
   /////////////////////////////////////////////////////////////////////////////
+
+  // Used for requests to leafCache
+  Reg#(CheriTransactionID) leafTransNum <- mkConfigReg(0);
+
+  // Used when consuming respones
+  Bag#(
+    TagOpsInFlight,     // Number of fifos
+    CheriTransactionID, // Key type
+    RequestInfo        // Data type
+  ) inFlightLeafReqs <- mkSmallBag;
+ 
 
   // Tag lookup responses sent before accessing leaves
   // The leaf responses are older so have priority
@@ -592,9 +604,9 @@ module mkPipelinedTagLookup #(
     CheriTransactionID transID = resp.transactionID;
 
     // Ignore validity - no way for it not to be valid!
-    RequestInfo request_info = inFlightRootReqs.first(transID).d;
+    RequestInfo request_info = inFlightRootReqs.isMember(transID).d;
     // ALL lookups are 1 flit so safe to dequeue
-    inFlightRootReqs.deq(transID);
+    inFlightRootReqs.remove(transID);
 
     // Tags at START of root request (note may have been overwritten if a write)
     Bit#(CheriDataWidth) rspData = resp.data.data;
@@ -740,7 +752,7 @@ module mkPipelinedTagLookup #(
           )); 
           debug2("tracing", $display(
             "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
-            "start LEAF | read"
+            "start LEAF | write"
           )); 
           `endif
 
@@ -780,16 +792,247 @@ module mkPipelinedTagLookup #(
     ));
   endrule
 
+  rule issueLeafRequest (
+    leafCache.canPut && 
+    pendingLeafReqs.notEmpty && 
+    // Don't let there be two requests in flight with same ID!
+    !inFlightLeafReqs.isMember(leafTransNum).v 
+  );
+    let mReq = pendingLeafReqs.first.req;
+    let req_info = pendingLeafReqs.first.info;
+
+    mReq.transactionID = leafTransNum;
+
+    debug2("taglookup", $display( 
+      "<time %0t TagLookup> ", $time,
+      "Sent to leaf with request info: ", fshow(req_info)
+    ));
+    leafCache.put(mReq);
+
+    inFlightLeafReqs.insert(leafTransNum, req_info);
+    
+    leafTransNum <= leafTransNum + 1;
+    pendingLeafReqs.deq();
+  endrule
+
   // Leaf tag responses
   /////////////////////////////////////////////////////////////////////////////
   
+  // Responses only produced after reading leaf values - have priority over early
+  // responses
+  FF#(LookupResponse, 2) lateRsps <- mkUGFFDebug("TagLookup_earlyRsps");
+
+  // Get response from leafCache and either end request or enq to foldRequests
+  // NOTE: no risk of foldRequests being full as has priority
+  rule consumeLeafResponse (leafCache.response.canGet && earlyRsps.notFull);
+    CheriMemResponse resp <- leafCache.response.get();
+    CheriTransactionID transID = resp.transactionID;
+
+    // Ignore validity - no way for it not to be valid!
+    RequestInfo request_info = inFlightLeafReqs.isMember(transID).d;
+    // ALL lookups are 1 flit so safe to dequeue
+    inFlightLeafReqs.remove(transID);
+
+    // Tags at START of root request (note may have been overwritten if a write)
+    Bit#(CheriDataWidth) rspData = resp.data.data;
+
+    // Returns tagged Node Bool
+    LineTags leafLine = getLeafLine(
+      request_info.capNumber,
+      rspData
+    );
+
+    debug2("taglookup", $display( 
+      "<time %0t TagLookup> ", $time,
+      "Recieved leaf response: ", fshow(resp)
+    ));
+
+    case (request_info.opType) matches
+      Read: begin
+        // Reached a Leaf of the table, return lookup
+        debug2("taglookup", $display(
+          "<time %0t TagLookup> ", $time,
+          "Leaf tags: ", leafLine
+        ));
+
+        `ifdef TAGCONTROLLER_BENCHMARKING
+        debug2("tracing", $display(
+          "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
+          "end LEAF | read"
+        )); 
+        `endif
+
+        // enqueue the lookup response
+        lateRsps.enq(
+          LookupResponse{  
+            `ifdef TAGCONTROLLER_BENCHMARKING
+            bench_id: request_info.bench_id,
+            `endif
+            tags: leafLine,
+            request_id: request_info.request_id
+          }
+        );
+      end
+      Set: begin 
+        `ifdef TAGCONTROLLER_BENCHMARKING
+        debug2("tracing", $display(
+          "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
+          "end LEAF | write"
+        ));
+        `endif
+      end 
+      Clear: begin 
+
+        Bit#(CheriDataWidth) preClearedTags = getOldTagsEntry(
+          request_info.capNumber,
+          rspData,
+          leafLvl
+        );
+        Bit#(CheriDataWidth) afterClearedTags =  getNewTagsEntry(
+          leafLvl,
+          request_info.capNumber,
+          request_info.newTagValues,
+          request_info.enabledTags,
+          preClearedTags
+        );
+
+        // If the leaf tags are now ALL zero
+        if (pack(afterClearedTags)==0) begin
+          `ifdef TAGCONTROLLER_BENCHMARKING
+          debug2("tracing", $display(
+            "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
+            "end LEAF | write | FOLDING"
+          )); 
+          debug2("tracing", $display(
+            "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
+            "start root | write | IGNORED"
+          )); 
+          `endif
+
+          let rootRequest = craftTagWriteReq(
+            rootLvl,
+            request_info.capNumber,
+            zero, // Zero the root tag (length 1)
+            one,  // Only clear this one root tag
+            tagged Invalid
+          );
+
+          request_info.opType = Fold;
+
+          foldRequests.enq(
+            ProcessedRequest {
+              req: rootRequest,
+              info: request_info
+            }
+          );
+        end else begin
+          `ifdef TAGCONTROLLER_BENCHMARKING
+          debug2("tracing", $display(
+            "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
+            "end LEAF | read | NO FOLD"
+          )); 
+          `endif
+          rootStalled[1] <= False;
+        end
+      end 
+      // Never send Fold requests to leaf
+    endcase
+  endrule
+
+
   // Sub interfaces
   /////////////////////////////////////////////////////////////////////////////
+
+  // Interface the tag controller uses to send tag requests
+  interface Slave cache;
+    interface CheckedPut request;
+      method Bool canPut() = pendingRootReqs.notFull;
+      method Action put(CheriTagRequest req) if (pendingRootReqs.notFull);
+        debug2("taglookup", $display(
+            "<time %0t TagLookup> ", $time,
+            "Processing new tag lookup request: ", fshow(req)
+        ));
+        handle_new_root_request(req);
+      endmethod
+    endinterface
+    interface CheckedGet response;
+      method Bool canGet() = earlyRsps.notEmpty || lateRsps.notEmpty();
+      method CheriTagResponse peek();
+        if (lateRsps.notEmpty()) begin
+          // Use response from leaf cache
+          return CheriTagResponse{
+            `ifdef TAGCONTROLLER_BENCHMARKING
+            bench_id: lateRsps.first().bench_id,
+            `endif
+            tags: tagged Covered lateRsps.first().tags,
+            request_id: lateRsps.first().request_id
+          };
+        end else begin 
+          // Use response from root cache
+          return CheriTagResponse{
+            `ifdef TAGCONTROLLER_BENCHMARKING
+            bench_id: earlyRsps.first().bench_id,
+            `endif
+            tags: tagged Covered earlyRsps.first().tags,
+            request_id: earlyRsps.first().request_id
+          };
+        end
+      endmethod
+      method ActionValue#(CheriTagResponse) get() if (earlyRsps.notEmpty || lateRsps.notEmpty());
+        CheriTagResponse tr = ?;
+      
+        if (lateRsps.notEmpty()) begin
+          // Use response from leaf cache
+          tr = CheriTagResponse{
+            `ifdef TAGCONTROLLER_BENCHMARKING
+            bench_id: lateRsps.first().bench_id,
+            `endif
+            tags: tagged Covered lateRsps.first().tags,
+            request_id: lateRsps.first().request_id
+          };
+          lateRsps.deq();
+
+          debug2("taglookup", $display(
+            "<time %0t TagLookup> ", $time,
+            "got valid lookup response LATE ", fshow(tr)
+          ));
+        end else begin 
+          // Use response from root cache
+          tr =  CheriTagResponse{
+            `ifdef TAGCONTROLLER_BENCHMARKING
+            bench_id: earlyRsps.first().bench_id,
+            `endif
+            tags: tagged Covered earlyRsps.first().tags,
+            request_id: earlyRsps.first().request_id
+          };
+          earlyRsps.deq();
+
+          debug2("taglookup", $display(
+            "<time %0t TagLookup> ", $time,
+            "got valid lookup response EARLY ", fshow(tr)
+          ));
+        end
+        // debug msg and return response
+
+        return tr;
+      endmethod
+    endinterface
+  endinterface
+        
   // Interface the tag controller uses to connect tag lookup to DRAM
   interface Master memory;
     interface request = toUGCheckedGet(ff2fifof(backupMemoryReqs));
     interface response = toCheckedPut(ff2fifof(backupMemoryRsps));
   endinterface
 
+  `ifdef TAGCONTROLLER_BENCHMARKING
+  // Does the tag controller still need access to DRAM?
+  method Bool isIdle = (
+    !pendingRootReqs.notEmpty &&
+    inFlightRootReqs.empty &&
+    !pendingLeafReqs.notEmpty &&
+    inFlightLeafReqs.empty
+  );
+  `endif
 
 endmodule

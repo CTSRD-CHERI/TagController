@@ -142,14 +142,22 @@ module mkTagController(TagControllerIfc);
   //TagLookupIfc tagLookup <- mkTagLookup(mID);
 
   // RUNTYPE: Null lookups
-  TagLookupIfc tagLookup <- mkMultiLevelTagLookup(
+  // TagLookupIfc tagLookup <- mkMultiLevelTagLookup(
+  //                               mID,
+  //                               unpack(fromInteger(table_end_addr)),
+  //                               tableStructure,
+  //                               unpack(fromInteger(table_start_addr)),
+  //                               covered_mem_size
+  //                           );
+  // TagLookupIfc tagLookup <- mkNullMultiLevelTagLookup();
+  // RUNTYPE: Pipelined lookups
+  TagLookupIfc tagLookup <- mkPipelinedTagLookup(
                                 mID,
                                 unpack(fromInteger(table_end_addr)),
                                 tableStructure,
                                 unpack(fromInteger(table_start_addr)),
                                 covered_mem_size
                             );
-  // TagLookupIfc tagLookup <- mkNullMultiLevelTagLookup();
 
   // lookup responses fifo
   // Size of these structures must be >= number of outstandring requests from the L2.
@@ -161,12 +169,9 @@ module mkTagController(TagControllerIfc);
   // Now keep track of InFlight pending lookups
   // FF#(LookupReqInfo, InFlight)                     pendingLookups <- mkFF;
 
-  // TagLookup cannot guarantee that responses to requests with same id return in order
-  // therefore need to limit this to depth 1
-  // This means a read request can only be over taken by a maximum of InFlight other reads
-  // NOTE: tag request ids are not unique! Because writes don't respond, they may be issued
-  //       with the same request id as a read
-  FFBag#(InFlight, TagRequestID, LookupReqInfo, 1) pendingLookups <- mkFFBag;
+  // TagLookup cannot handle multiple requests with same id so limit depth to 1
+  // This means a request can only be over taken by a maximum of InFlight others
+  Bag#(InFlight, TagRequestID, LookupReqInfo) pendingLookups <- mkSmallBag;
   Reg#(TagRequestID) currentRequestID <- mkConfigReg(0);
 
   // As well as buffering up requests to taglookup (which can vary in response time)
@@ -194,7 +199,7 @@ module mkTagController(TagControllerIfc);
     // Can stash info about which tags we want
     !addrFrame.full() &&
     // We are not at risk of having two in flight read requests with the same request ID
-    !pendingLookups.first(currentRequestID).v;
+    !pendingLookups.isMember(currentRequestID).v;
 
   // module rules
   /////////////////////////////////////////////////////////////////////////////
@@ -204,7 +209,7 @@ module mkTagController(TagControllerIfc);
     CheriTagResponse tags <- tagLookup.cache.response.get();
 
     // Ignore validity - can only get responses for IDs that are inflight
-    LookupReqInfo lookup = pendingLookups.first(tags.request_id).d;
+    LookupReqInfo lookup = pendingLookups.isMember(tags.request_id).d;
   
     debug2("tagcontroller", $display("<time %0t TagController> Completed lookup response: ", $time, fshow(lookup.id), " - ", fshow(LookupRspInfo{rsp: tags, tagOnlyRead: lookup.tagOnlyRead})));
     
@@ -216,7 +221,7 @@ module mkTagController(TagControllerIfc);
     `endif   
 
     lookupRsp.enq(lookup.id, LookupRspInfo{rsp: tags, tagOnlyRead: lookup.tagOnlyRead});
-    pendingLookups.deq(tags.request_id);
+    pendingLookups.remove(tags.request_id);
   endrule
 
   // RUNTYPE: Buffer pending tag requests
@@ -394,6 +399,10 @@ module mkTagController(TagControllerIfc);
               debug2("tagcontroller", $display("<time %0t TagController> Space left in pendingLookupRequests: ", $time, " ", fshow(pendingLookupRequests.remaining())));    
               pendingLookupRequests.enq(tagReq);
 
+              // It is OK for writes to have same request id as other requests
+              // because they do not produce responses!
+              // currentRequestID <= currentRequestID + 1;
+
               newTagWrite = unpack(0);
             end
             tagWrite <= newTagWrite;
@@ -406,7 +415,7 @@ module mkTagController(TagControllerIfc);
           pendingLookupRequests.enq(tagReq);
 
           debug2("tagcontroller", $display("<time %0t TagController> Enqueueing lookup request info into pendingLookups: ", $time, " ", fshow(LookupReqInfo{id: id, tagOnlyRead: tagOnlyRead})));    
-          pendingLookups.enq(currentRequestID, LookupReqInfo{id: id, tagOnlyRead: tagOnlyRead});
+          pendingLookups.insert(currentRequestID, LookupReqInfo{id: id, tagOnlyRead: tagOnlyRead});
           currentRequestID <= currentRequestID + 1;
         end
       endmethod
