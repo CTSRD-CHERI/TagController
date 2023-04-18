@@ -48,12 +48,10 @@ import VnD::*;
 
 
 // How many tag ops per cache can be in flight
-// NOTE: currently only support 1 (as must return in order)
 typedef 1 TagOpsInFlight;
 
 // Determines size of buffer before leafCache
 // Allows cached root only requests to not be held up by leaf misses
-// NOTE: currently only support 1 (as must return in order)
 typedef 1 CentralBufferSize;
 
 typedef enum {Read, Clear, Set, Fold} TagOpType deriving (Bits, FShow, Eq);
@@ -63,9 +61,7 @@ typedef struct {
   CapNumber capNumber;
   LineTags newTagValues;
   LineTags enabledTags;
-  // If request is merged with a fold, some tags will be zeroed
-  // BUT the response from the cache may contain 1s in these positions
-  LineTags foldedTags;
+  TagRequestID request_id;
   `ifdef TAGCONTROLLER_BENCHMARKING
   Bit#(CheriTransactionIDWidth) bench_id;
   `endif
@@ -388,10 +384,10 @@ module mkPipelinedTagLookup #(
 
   // Used when consuming respones
   FFBag#(
-    TagOpsInFlight,
-    CheriTransactionID,
-    RequestInfo,
-    TagOpsInFlight
+    TagOpsInFlight,     // Number of fifos
+    CheriTransactionID, // Key type
+    RequestInfo,        // Data type
+    TagOpsInFlight      // Depth of each fifo
   ) inFlightRootReqs <- mkFFBag;
   
   // If there might be a fold later then stall
@@ -415,6 +411,7 @@ module mkPipelinedTagLookup #(
         TagOpType opType = Read;
         LineTags newTagValues = unpack(0);
         LineTags enabledTags = unpack(0);
+        TagRequestID request_id = req.request_id;
         `ifdef TAGCONTROLLER_BENCHMARKING
         Bit#(CheriTransactionIDWidth) bench_id = req.bench_id;
         `endif
@@ -498,7 +495,8 @@ module mkPipelinedTagLookup #(
             opType: opType,
             capNumber: capAddr.capNumber,
             newTagValues: newTagValues,
-            enabledTags: enabledTags
+            enabledTags: enabledTags,
+            request_id: request_id
           };
 
           debug2("taglookup", $display( 
@@ -578,9 +576,11 @@ module mkPipelinedTagLookup #(
   /////////////////////////////////////////////////////////////////////////////
 
   // Tag lookup responses sent before accessing leaves
-  // Drained by tag controller at "start" of every cycle so *should never be full*
-  // (As controller has space for all in flight responses)
-  FF#(LookupResponse,2) earlyRsps <- mkUGFFDebug("TagLookup_earlyRsps");
+  // The leaf responses are older so have priority
+  // There could be as many as InFlight/2 cycles where an early response is
+  // created but a leaf response id dequeued. Add an extra slot so consumeRootResponse
+  // can be called even if InFlight/2 requests are in the fifo
+  FF#(LookupResponse, TAdd#(TDiv#(InFlight,2),1)) earlyRsps <- mkUGFFDebug("TagLookup_earlyRsps");
 
   // Pending leaf requests
   // TODO: what size should this be!
@@ -637,7 +637,8 @@ module mkPipelinedTagLookup #(
               `ifdef TAGCONTROLLER_BENCHMARKING
               bench_id: request_info.bench_id,
               `endif
-              tags: unpack(0)
+              tags: unpack(0),
+              request_id: request_info.request_id
             }
           );
         end else begin 
