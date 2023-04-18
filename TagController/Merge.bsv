@@ -40,24 +40,24 @@ import SpecialFIFOs::*;
 import Vector::*;
 import MemTypesCHERI::*;
    
-typedef Bit#(4) InterfaceT;
+typedef Bit#(1) InterfaceT;
 
 interface MergeIfc#(numeric type numIfc);
   interface Master#(CheriMemRequest, CheriMemResponse) merged;
   interface Vector#(numIfc, Slave#(CheriMemRequest, CheriMemResponse)) slave;
 endinterface
 
-module mkMerge(MergeIfc#(numIfc));
-    Vector#(numIfc,  FIFOF#(CheriMemRequest))  req_fifos   <- replicateM(mkUGFIFOF);
-    FIFOF#(CheriMemRequest)                    nextReq     <- mkBypassFIFOF;
-    Vector#(numIfc,  FIFOF#(CheriMemResponse)) rsp_fifos   <- replicateM(mkFIFOF);
-    FIFOF#(InterfaceT)                         pendingReqs <- mkSizedFIFOF(16);
-    Reg#(Bit#(8))                              arbiter     <- mkReg(0);
+module mkMerge2(MergeIfc#(2));
+    Vector#(2,  FIFOF#(CheriMemRequest))    req_fifos   <- replicateM(mkUGFIFOF);
+    FIFOF#(CheriMemRequest)                 nextReq     <- mkBypassFIFOF;
+    Vector#(2,  FIFOF#(CheriMemResponse))   rsp_fifos   <- replicateM(mkFIFOF);
+    FIFOF#(InterfaceT)                      pendingReqs <- mkSizedFIFOF(16);
+    Reg#(Bit#(1))                           arbiter     <- mkReg(0);
 
     rule mergeInputs;
         Bool found = False;
-        Bit#(8) j = arbiter;
-        for (Integer i=0; i<valueOf(numIfc); i=i+1) begin
+        Bit#(1) j = arbiter;
+        for (Integer i=0; i<2; i=i+1) begin
             if (found == False && req_fifos[j].notEmpty) begin
                 debug2("merge", $display(
                     "<time %0t Merge> ", $time,
@@ -67,29 +67,23 @@ module mkMerge(MergeIfc#(numIfc));
 
                 // Used to indicate order of responses
                 // TODO: allow this to be out of order
-                pendingReqs.enq(truncate(j));
+                pendingReqs.enq(j);
 
                 req_fifos[j].deq();
                 found = True;
             end
 
-            j = j + 1;
-            if (j >= fromInteger(valueOf(numIfc))-1) begin
-                j = 0;
-            end
-
-            // Ensure we don't starve one of the slaves
-            if (arbiter >= fromInteger(valueOf(numIfc))-1) begin
-                arbiter <= 0;
-            end else begin
-                arbiter <= arbiter + 1;
-            end
+            // convert to Bool and back
+            j = pack(!(unpack(j)));
         end
+
+        // Ensure we don't starve one of the slaves
+        arbiter <= pack(!unpack(arbiter));
     endrule
     
-    Vector#(numIfc, Slave#(CheriMemRequest, CheriMemResponse)) slaves;
-    for (Integer i=0; i<valueOf(numIfc); i=i+1) begin
-        slaves [i] = interface Slave;
+    Vector#(2, Slave#(CheriMemRequest, CheriMemResponse)) slaves;
+    for (Integer i=0; i<valueOf(2); i=i+1) begin
+        slaves[i] = interface Slave;
             interface response = toCheckedGet(rsp_fifos[i]);
             interface request  = toCheckedPut(req_fifos[i]);
         endinterface;

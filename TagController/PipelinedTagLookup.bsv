@@ -202,18 +202,25 @@ module mkPipelinedTagLookup #(
       method Bool canPut();
         return backupCache.canPut();
       endmethod
-      method Action put(CheriMemRequest cmr);
+      method Action put(CheriMemRequest cmr) if (backupCache.canPut);
         backupCache.put(cmr);
       endmethod
     endinterface
-    interface CheckedGet response = backupCache.response;
+    interface CheckedGet response;
+      method Bool canGet() = backupCache.response.canGet();
+      method CheriMemResponse peek() = backupCache.response.peek();
+      method ActionValue#(CheriMemResponse) get() if (backupCache.response.canGet);
+        let ret <- backupCache.response.get();
+        return ret;
+      endmethod
+    endinterface
   endinterface;
 
 
   // Attach caches together
 
   // Merge root and leaf master interfaces
-  MergeIfc#(2) requestMerger <- mkMerge();
+  MergeIfc#(2) requestMerger <- mkMerge2();
   mkConnection(root_master, requestMerger.slave[0]);
   mkConnection(leaf_master, requestMerger.slave[1]);
   // Connect merged master to backup cache
@@ -384,9 +391,9 @@ module mkPipelinedTagLookup #(
 
   // Used when consuming respones
   Bag#(
-    TagOpsInFlight,     // Number of fifos
+    InFlight,           // Number of items in bag
     CheriTransactionID, // Key type
-    RequestInfo        // Data type
+    RequestInfo         // Data type
   ) inFlightRootReqs <- mkSmallBag();
   
   // If there might be a fold later then stall
@@ -522,7 +529,7 @@ module mkPipelinedTagLookup #(
   rule issueRootRequest (
     rootCache.canPut && 
     (
-      (pendingRootReqs.notEmpty && !rootStalled[1]) 
+      (pendingRootReqs.notEmpty && !rootStalled[2]) 
       || 
       foldRequests.notEmpty
     ) &&
@@ -550,6 +557,7 @@ module mkPipelinedTagLookup #(
       
       rootTransNum <= rootTransNum + 1;
       foldRequests.deq();
+      rootStalled[2] <= False;
     end else if (pendingRootReqs.notEmpty) begin 
       let mReq = pendingRootReqs.first.req;
       let req_info = pendingRootReqs.first.info;
@@ -565,7 +573,11 @@ module mkPipelinedTagLookup #(
         "Sent to root with request info: ", fshow(req_info)
       ));
       rootCache.put(mReq);
-
+ 
+      debug2("taglookup", $display( 
+        "<time %0t TagLookup> ", $time,
+        "inFlightRootReqs.insert(: ", fshow(rootTransNum), ", ", fshow(req_info)
+      ));
       inFlightRootReqs.insert(rootTransNum, req_info);
       
       rootTransNum <= rootTransNum + 1;
@@ -581,7 +593,7 @@ module mkPipelinedTagLookup #(
 
   // Used when consuming respones
   Bag#(
-    TagOpsInFlight,     // Number of fifos
+    InFlight,     // Number of fifos
     CheriTransactionID, // Key type
     RequestInfo        // Data type
   ) inFlightLeafReqs <- mkSmallBag;
@@ -599,9 +611,19 @@ module mkPipelinedTagLookup #(
   FF#(ProcessedRequest, CentralBufferSize) pendingLeafReqs <- mkUGFFBypass();
 
   // Get response from rootCache and either respond early or send request to leafCache
-  rule consumeRootResponse (rootCache.response.canGet && earlyRsps.notFull);
+  rule consumeRootResponse (rootCache.response.canGet && earlyRsps.notFull && pendingLeafReqs.notFull);
     CheriMemResponse resp <- rootCache.response.get();
     CheriTransactionID transID = resp.transactionID;
+
+
+    debug2("taglookup", $display( 
+      "<time %0t TagLookup> ", $time,
+      "ROOT: resp.transactionID: ", fshow(transID)
+    ));
+    debug2("taglookup", $display( 
+      "<time %0t TagLookup> ", $time,
+      "ROOT: inFlightRootReqs(resp.transactionID): ", fshow(inFlightRootReqs.isMember(transID))
+    ));
 
     // Ignore validity - no way for it not to be valid!
     RequestInfo request_info = inFlightRootReqs.isMember(transID).d;
@@ -623,6 +645,10 @@ module mkPipelinedTagLookup #(
     debug2("taglookup", $display( 
       "<time %0t TagLookup> ", $time,
       "Recieved root response: ", fshow(resp)
+    ));
+    debug2("taglookup", $display( 
+      "<time %0t TagLookup> ", $time,
+      "Response request info: ", fshow(request_info)
     ));
 
     case (request_info.opType) matches
@@ -828,6 +854,16 @@ module mkPipelinedTagLookup #(
     CheriMemResponse resp <- leafCache.response.get();
     CheriTransactionID transID = resp.transactionID;
 
+    debug2("taglookup", $display( 
+      "<time %0t TagLookup> ", $time,
+      "LEAF: resp.transactionID: ", fshow(transID)
+    ));
+    debug2("taglookup", $display( 
+      "<time %0t TagLookup> ", $time,
+      "LEAF: inFlightRootReqs(resp.transactionID): ", fshow(inFlightRootReqs.isMember(transID))
+    ));
+
+
     // Ignore validity - no way for it not to be valid!
     RequestInfo request_info = inFlightLeafReqs.isMember(transID).d;
     // ALL lookups are 1 flit so safe to dequeue
@@ -901,7 +937,7 @@ module mkPipelinedTagLookup #(
           `ifdef TAGCONTROLLER_BENCHMARKING
           debug2("tracing", $display(
             "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
-            "end LEAF | write | FOLDING"
+            "end leaf | write | FOLDING"
           )); 
           debug2("tracing", $display(
             "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
@@ -929,7 +965,7 @@ module mkPipelinedTagLookup #(
           `ifdef TAGCONTROLLER_BENCHMARKING
           debug2("tracing", $display(
             "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
-            "end LEAF | read | NO FOLD"
+            "end LEAF | write | NO FOLD"
           )); 
           `endif
           rootStalled[1] <= False;
