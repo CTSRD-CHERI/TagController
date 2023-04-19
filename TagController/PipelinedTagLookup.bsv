@@ -165,6 +165,11 @@ module mkPipelinedTagLookup #(
     0, WriteAllocate, RespondAll, TCache,
     zeroExtend(rootBackupReqs.remaining()), ff2fifof(rootBackupReqs), ff2fifof(rootBackupRsps));
     
+  // Simply stuff "True" into commits because we never cancel transactions here
+  rule stuffRootCommits;
+    rootCache.nextWillCommit(True);
+  endrule
+
   Master#(CheriMemRequest,CheriMemResponse) root_master = interface Master
     interface request = toCheckedGet(ff2fifof(rootBackupReqs));
     interface response = toCheckedPut(ff2fifof(rootBackupRsps));
@@ -180,6 +185,11 @@ module mkPipelinedTagLookup #(
   CacheCore#(4, TSub#(Indices,3), TagOpsInFlight)  leafCache <- mkCacheCore(
     1, WriteAllocate, RespondAll, TCache,
     zeroExtend(leafBackupReqs.remaining()), ff2fifof(leafBackupReqs), ff2fifof(leafBackupRsps));
+
+  // Simply stuff "True" into commits because we never cancel transactions here
+  rule stuffLeafCommits;
+    leafCache.nextWillCommit(True);
+  endrule
 
   Master#(CheriMemRequest,CheriMemResponse) leaf_master = interface Master
     interface request = toCheckedGet(ff2fifof(leafBackupReqs));
@@ -197,6 +207,11 @@ module mkPipelinedTagLookup #(
     2, WriteAllocate, RespondAll, TCache,
     zeroExtend(backupMemoryReqs.remaining()), ff2fifof(backupMemoryReqs), ff2fifof(backupMemoryRsps));
   
+  // Simply stuff "True" into commits because we never cancel transactions here
+  rule stuffBackupCommits;
+    backupCache.nextWillCommit(True);
+  endrule
+
   Slave#(CheriMemRequest,CheriMemResponse) backup_slave = interface Slave
     interface CheckedPut request;
       method Bool canPut();
@@ -225,14 +240,6 @@ module mkPipelinedTagLookup #(
   mkConnection(leaf_master, requestMerger.slave[1]);
   // Connect merged master to backup cache
   mkConnection(requestMerger.merged, backup_slave);
-
-  // Simply stuff "True" into commits because we never cancel transactions here
-  rule stuffCommits;
-    rootCache.nextWillCommit(True);
-    leafCache.nextWillCommit(True);
-    backupCache.nextWillCommit(True);
-  endrule
-
 
   // module helper functions (Copied from MultiLevelTagLookup)
   /////////////////////////////////////////////////////////////////////////////
@@ -582,6 +589,8 @@ module mkPipelinedTagLookup #(
       
       rootTransNum <= rootTransNum + 1;
       pendingRootReqs.deq();
+
+      if (req_info.opType == Clear) rootStalled[2] <= True;
     end
   endrule
 
@@ -609,6 +618,18 @@ module mkPipelinedTagLookup #(
   // Pending leaf requests
   // TODO: what size should this be!
   FF#(ProcessedRequest, CentralBufferSize) pendingLeafReqs <- mkUGFFBypass();
+
+  // rule consumeRootDebug;
+  //   debug2("taglookup", $display( 
+  //     "<time %0t TagLookup> ", $time,
+  //     "ROOT DEBUG:",
+  //     " rootCache.response.canGet: ", fshow(rootCache.response.canGet),
+  //     " searlyRsps.notFull: ", fshow(earlyRsps.notFull),
+  //     " pendingLeafReqs.notFull: ", fshow(pendingLeafReqs.notFull),
+  //     " rootTransNum-1: ", fshow(rootTransNum-1),
+  //     " inFlightRootReqs(rootTransNum-1): ", fshow(inFlightRootReqs.isMember(rootTransNum-1))
+  //   ));
+  // endrule
 
   // Get response from rootCache and either respond early or send request to leafCache
   rule consumeRootResponse (rootCache.response.canGet && earlyRsps.notFull && pendingLeafReqs.notFull);
