@@ -357,7 +357,22 @@ module mkCacheCore#(Integer cacheId,
                                (readReqReg.v || (!oneInFlight)); // If the readReqReg is valid (but only check this if there is oneInFlight as the ids matching is sufficient otherwise).
   Bool memRspHasResponseRecord = memRsps.notEmpty && ((oneInFlight) ? readRegMatchesMemResp:readReqs.isMember(memRspId).v);
   Bool responseRecordValid = memRsps.notEmpty && readRegMatchesMemResp; 
-                             
+                   
+  function Action debug2(String component, Action a) = action
+    Bool log0 <- $test$plusargs("cache0");
+    Bool log1 <- $test$plusargs("cache1");
+    Bool log2 <- $test$plusargs("cache2");
+    if (cacheId == 0 && log0 && !(cacheState == Init)) begin
+      Debug::debug2(component,a);
+    end
+    if (cacheId == 1 && log1 && !(cacheState == Init)) begin
+      Debug::debug2(component,a);
+    end
+    if (cacheId == 2 && log2 && !(cacheState == Init)) begin
+      Debug::debug2(component,a);
+    end
+  endaction;
+
     
   rule initialize(cacheState == Init);
     debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Initializing tag %0d", $time, cacheId, initCount));

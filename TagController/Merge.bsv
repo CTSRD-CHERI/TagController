@@ -47,7 +47,9 @@ interface MergeIfc#(numeric type numIfc);
   interface Vector#(numIfc, Slave#(CheriMemRequest, CheriMemResponse)) slave;
 endinterface
 
-module mkMerge2(MergeIfc#(2));
+// NOTE: this makes use of cachecorder only using transaction ids in the range 0-15
+//       by using 5th bit to indicate cache of origin
+module mkMerge2CacheCore(MergeIfc#(2)) provisos (Add#(a_,5,CheriTransactionIDWidth));
     Vector#(2,  FIFOF#(CheriMemRequest))    req_fifos   <- replicateM(mkUGFIFOF);
     FIFOF#(CheriMemRequest)                 nextReq     <- mkBypassFIFOF;
     Vector#(2,  FIFOF#(CheriMemResponse))   rsp_fifos   <- replicateM(mkFIFOF);
@@ -63,7 +65,10 @@ module mkMerge2(MergeIfc#(2));
                     "<time %0t Merge> ", $time,
                     "Selecting request from cache: ", fshow(j)
                 )); 
-                nextReq.enq(req_fifos[j].first);
+
+                let next_req = req_fifos[j].first;
+                next_req.transactionID[4] = j;
+                nextReq.enq(next_req);
 
                 // Used to indicate order of responses
                 // TODO: allow this to be out of order
@@ -100,6 +105,8 @@ module mkMerge2(MergeIfc#(2));
                     "<time %0t Merge> ", $time,
                     "Sending backup cache response to cache: ", fshow(pendingReqs.first)
                 )); 
+                Bit#(4) resp_trans_id = truncate(resp.transactionID);
+                resp.transactionID = zeroExtend(resp_trans_id);
 
                 rsp_fifos[pendingReqs.first].enq(resp);
 

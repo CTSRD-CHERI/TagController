@@ -355,7 +355,6 @@ module mkMemoryClientGolden (MemoryClient);
 
   // Responses
   method ActionValue#(MemoryClientResponse) getResponse;
-    //$display("response: ", fshow(responseFIFO.first));
     responseFIFO.deq;
     return responseFIFO.first;
   endmethod
