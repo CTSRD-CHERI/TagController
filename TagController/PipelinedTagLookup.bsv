@@ -49,14 +49,15 @@ import VnD::*;
 
 // How many tag ops per cache can be in flight
 // RUNTYPE: limit concurrency
-typedef 8 TagOpsInFlight;
+`define TagOpsInFlight 8
+// typedef 8 TagOpsInFlight;
 
 // RUNTYPE: out of order
 typedef 2 CacheOpsInFlight;
 
 // Determines size of buffer before leafCache
 // Allows cached root only requests to not be held up by leaf misses
-typedef TagOpsInFlight CentralBufferSize;
+typedef `TagOpsInFlight CentralBufferSize;
 
 typedef enum {Read, Clear, Set, Fold} TagOpType deriving (Bits, FShow, Eq);
 
@@ -166,7 +167,7 @@ module mkPipelinedTagLookup #(
   FF#(CheriMemResponse, 2) rootBackupRsps <- mkUGFFDebug("TagLookup_rootBackupRsps");
 
   CacheCore#(4, TSub#(Indices,3), CacheOpsInFlight)  rootCache <- mkCacheCore(
-    0, WriteAllocate, RespondAll, TCache,
+    1, WriteAllocate, RespondAll, TCache,
     zeroExtend(rootBackupReqs.remaining()), ff2fifof(rootBackupReqs), ff2fifof(rootBackupRsps));
     
   // Simply stuff "True" into commits because we never cancel transactions here
@@ -187,7 +188,7 @@ module mkPipelinedTagLookup #(
   FF#(CheriMemResponse, 2) leafBackupRsps <- mkUGFFDebug("TagLookup_leafBackupRsps");
 
   CacheCore#(4, TSub#(Indices,3), CacheOpsInFlight)  leafCache <- mkCacheCore(
-    1, WriteAllocate, RespondAll, TCache,
+    2, WriteAllocate, RespondAll, TCache,
     zeroExtend(leafBackupReqs.remaining()), ff2fifof(leafBackupReqs), ff2fifof(leafBackupRsps));
 
   // Simply stuff "True" into commits because we never cancel transactions here
@@ -203,12 +204,14 @@ module mkPipelinedTagLookup #(
   // BACKUP
 
   // memory requests fifo
-  FF#(CheriMemRequest, 8)  backupMemoryReqs <-  mkUGFFDebug("TagLookup_backupMemoryReqs");
+  FF#(CheriMemRequest, 10)  backupMemoryReqs <-  mkUGFFDebug("TagLookup_backupMemoryReqs");
   // memory response fifo
   FF#(CheriMemResponse, 2) backupMemoryRsps <- mkUGFFDebug("TagLookup_backupMemoryRsps");
 
+  // cache ID must be same as mID as this is used for writeback requests to DRAM
+  // For now have just set both to 1 by hand
   CacheCore#(4, TSub#(Indices,2), CacheOpsInFlight)  backupCache <- mkCacheCore(
-    2, WriteAllocate, RespondAll, TCache,
+    3, WriteAllocate, RespondAll, TCache,
     zeroExtend(backupMemoryReqs.remaining()), ff2fifof(backupMemoryReqs), ff2fifof(backupMemoryRsps));
   
   // Simply stuff "True" into commits because we never cancel transactions here
@@ -394,6 +397,35 @@ module mkPipelinedTagLookup #(
   Vector#(1,Bool) zero = replicate (False);
   Vector#(1,Bool) one  = replicate (True);
 
+  // Limit number of active lookups
+  /////////////////////////////////////////////////////////////////////////////
+  Reg#(Bit#(TAdd#(TLog#(`TagOpsInFlight),1))) current_ops_in_flight <- mkReg(0);
+  PulseWire root_ended <- mkPulseWire();
+  PulseWire leaf_ended <- mkPulseWire();
+  PulseWire resp_taken <- mkPulseWire();
+  PulseWire new_request <- mkPulseWire();
+
+  rule update_ops_in_flight;
+    let finished = 0;
+    if(root_ended) finished = finished + 1;
+    if(leaf_ended) finished = finished + 1;
+    if(resp_taken) finished = finished + 1;
+    if(new_request) finished = finished - 1;
+    
+    debug2("taglookup", $display(
+      "<time %0t TagLookup>", $time,
+      " Ops in flight was: ", fshow(current_ops_in_flight),
+      " But is now: ", fshow(current_ops_in_flight-finished),
+      " root_ended: ", fshow(root_ended),
+      " leaf_ended: ", fshow(leaf_ended),
+      " new_request: ", fshow(new_request),
+      " resp_taken: ", fshow(resp_taken)
+    ));
+
+    current_ops_in_flight <= current_ops_in_flight - finished;
+  endrule
+
+
   // Root tags lookup 
   /////////////////////////////////////////////////////////////////////////////
 
@@ -402,7 +434,7 @@ module mkPipelinedTagLookup #(
 
   // Used when consuming respones
   Bag#(
-    TagOpsInFlight,     // Number of items in bag
+    `TagOpsInFlight,     // Number of items in bag
     CheriTransactionID, // Key type
     RequestInfo         // Data type
   ) inFlightRootReqs <- mkSmallBag();
@@ -607,7 +639,7 @@ module mkPipelinedTagLookup #(
 
   // Used when consuming respones
   Bag#(
-    TagOpsInFlight,     // Number of fifos
+    `TagOpsInFlight,     // Number of fifos
     CheriTransactionID, // Key type
     RequestInfo        // Data type
   ) inFlightLeafReqs <- mkSmallBag;
@@ -618,11 +650,22 @@ module mkPipelinedTagLookup #(
   // There could be as many as InFlight/2 cycles where an early response is
   // created but a leaf response id dequeued. Add an extra slot so consumeRootResponse
   // can be called even if InFlight/2 requests are in the fifo
-  FF#(LookupResponse, TAdd#(TDiv#(TagOpsInFlight,2),1)) earlyRsps <- mkUGFFDebug("TagLookup_earlyRsps");
+  FF#(LookupResponse, TAdd#(TDiv#(`TagOpsInFlight,2),1)) earlyRsps <- mkUGFFDebug("TagLookup_earlyRsps");
 
   // Pending leaf requests
   // TODO: what size should this be!
   FF#(ProcessedRequest, CentralBufferSize) pendingLeafReqs <- mkUGFFBypass();
+
+  rule consumeRootDebug;
+    debug2("taglookup", $display( 
+      "<time %0t TagLookup> ", $time,
+      "ROOT DEBUG:",
+      " rootCache.response.canGet: ", fshow(rootCache.response.canGet),
+      " earlyRsps.notFull: ", fshow(earlyRsps.notFull),
+      " rootTransNum-1: ", fshow(rootTransNum-1),
+      " inFlightRootReqs(rootTransNum-1): ", fshow(inFlightRootReqs.isMember(rootTransNum-1))
+    ));
+  endrule
 
 
   // Get response from rootCache and either respond early or send request to leafCache
@@ -790,6 +833,7 @@ module mkPipelinedTagLookup #(
           doTagRequest = False;
           // No risk of a fold so can unstall the root
           rootStalled[0] <= False;
+          root_ended.send();
         end else begin 
           debug2("taglookup",
             $display(
@@ -822,6 +866,7 @@ module mkPipelinedTagLookup #(
       Fold: begin 
         // Do nothing!
         doTagRequest = False;
+        root_ended.send();
       end 
     endcase
 
@@ -879,17 +924,6 @@ module mkPipelinedTagLookup #(
   // responses
   FF#(LookupResponse, 2) lateRsps <- mkUGFFDebug("TagLookup_earlyRsps");
 
-
-  rule consumeLeafDebug;
-    debug2("taglookup", $display( 
-      "<time %0t TagLookup> ", $time,
-      "LEAF DEBUG:",
-      " leafCache.response.canGet: ", fshow(leafCache.response.canGet),
-      " lateRsps.notFull: ", fshow(lateRsps.notFull),
-      " leafTransNum-1: ", fshow(leafTransNum-1),
-      " inFlightLeafReqs(leafTransNum-1): ", fshow(inFlightLeafReqs.isMember(leafTransNum-1))
-    ));
-  endrule
 
   // Get response from leafCache and either end request or enq to foldRequests
   // NOTE: no risk of foldRequests being full as has priority
@@ -959,6 +993,7 @@ module mkPipelinedTagLookup #(
           "end LEAF | write"
         ));
         `endif
+        leaf_ended.send();
       end 
       Clear: begin 
 
@@ -1012,6 +1047,7 @@ module mkPipelinedTagLookup #(
           )); 
           `endif
           rootStalled[1] <= False;
+          leaf_ended.send();
         end
       end 
       // Never send Fold requests to leaf
@@ -1026,12 +1062,15 @@ module mkPipelinedTagLookup #(
   interface Slave cache;
     interface CheckedPut request;
       method Bool canPut() = pendingRootReqs.notFull;
-      method Action put(CheriTagRequest req) if (pendingRootReqs.notFull);
+      method Action put(CheriTagRequest req) if (
+        pendingRootReqs.notFull && current_ops_in_flight < `TagOpsInFlight
+      );
         debug2("taglookup", $display(
             "<time %0t TagLookup> ", $time,
             "Processing new tag lookup request: ", fshow(req)
         ));
         handle_new_root_request(req);
+        new_request.send();
       endmethod
     endinterface
     interface CheckedGet response;
@@ -1093,6 +1132,7 @@ module mkPipelinedTagLookup #(
         end
         // debug msg and return response
 
+        resp_taken.send();
         return tr;
       endmethod
     endinterface

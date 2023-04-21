@@ -106,16 +106,16 @@ endinterface: CacheCorderer
 module mkCacheCorderer#(Integer cacheId)(CacheCorderer#(inFlight));
                    
   function Action debug2(String component, Action a) = action
-    Bool log0 <- $test$plusargs("cache0");
     Bool log1 <- $test$plusargs("cache1");
     Bool log2 <- $test$plusargs("cache2");
-    if (cacheId == 0 && log0) begin
-      Debug::debug2(component,a);
-    end
+    Bool log3 <- $test$plusargs("cache3");
     if (cacheId == 1 && log1) begin
       Debug::debug2(component,a);
     end
     if (cacheId == 2 && log2) begin
+      Debug::debug2(component,a);
+    end
+    if (cacheId == 3 && log3) begin
       Debug::debug2(component,a);
     end
   endaction;

@@ -359,16 +359,16 @@ module mkCacheCore#(Integer cacheId,
   Bool responseRecordValid = memRsps.notEmpty && readRegMatchesMemResp; 
                    
   function Action debug2(String component, Action a) = action
-    Bool log0 <- $test$plusargs("cache0");
     Bool log1 <- $test$plusargs("cache1");
     Bool log2 <- $test$plusargs("cache2");
-    if (cacheId == 0 && log0 && !(cacheState == Init)) begin
-      Debug::debug2(component,a);
-    end
+    Bool log3 <- $test$plusargs("cache3");
     if (cacheId == 1 && log1 && !(cacheState == Init)) begin
       Debug::debug2(component,a);
     end
     if (cacheId == 2 && log2 && !(cacheState == Init)) begin
+      Debug::debug2(component,a);
+    end
+    if (cacheId == 3 && log3 && !(cacheState == Init)) begin
       Debug::debug2(component,a);
     end
   endaction;
@@ -869,6 +869,10 @@ module mkCacheCore#(Integer cacheId,
         if (memRsps.notEmpty) begin
           debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> attempting memory response, id: %x, registered_id: %x, responseRecordValid: %d, memRsps.notEmpty: %d, readReqReg.d.outId==getRespId(memResp): %d", 
                                   $time, cacheId, getRespId(memResp), readReqReg.d.outId, responseRecordValid, memRsps.notEmpty, readReqReg.d.outId==getRespId(memResp)));
+          debug2("CacheCore", $display(
+            "<time %0t, cache %0d, CacheCore> ", $time, cacheId,
+            "memRsps.first: ", fshow(memRsps.first)
+          ));
           if (responseRecordValid) begin // Only proceed with a read fill if we guessed the correct id in the lookup stage.
             
             newReadReqReg.v = True; // Mark the readReqReg as serving an active reqeust.
@@ -1297,7 +1301,12 @@ module mkCacheCore#(Integer cacheId,
                                        }));
                 // If the conditions for a fill are good and we need to, do an eviction.
                 if (tag.dirty) begin
-                  debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> CacheCore - attempting Writeback roomForReadAndWriteback: %x ", $time, cacheId, roomForReadAndWriteback));
+                  debug2("CacheCore", $display(
+                    "<time %0t, cache %0d, CacheCore>", $time, cacheId, 
+                    " CacheCore - attempting Writeback roomForReadAndWriteback: %x ", roomForReadAndWriteback,
+                    " memReqFifoSpace: ", fshow(memReqFifoSpace),
+                    " orderer.mastReqsSpaces: ", fshow(orderer.mastReqsSpaces)
+                  ));
                   if (roomForReadAndWriteback && exeThisReq) Bool wontFail <- doWriteback;
                   else dead = True;
                 end
@@ -1324,6 +1333,8 @@ module mkCacheCore#(Integer cacheId,
 
           // If we intend to issue a new memory request, but an existing memory request is outstanding (and we only support one in flight)...
           if (doMemRequest && oneInFlight && readReqReg.v) dead = True;
+          // Similar condition for if InFlight > 1
+          if (doMemRequest && readReqs.full) dead = True;
           // If this is not the next request, kill the external request under two conditions...
           if (!exeThisReq && !isRead) dead = True;
           if (doMemRequest && !dead) begin
@@ -1609,6 +1620,11 @@ module mkCacheCore#(Integer cacheId,
       if (!newReadReqReg.v) begin
         if (memRsps.notEmpty) begin
           maybeNewReadReq = readReqs.isMember(memRspId);
+          debug2("CacheCore", $display(
+            "<time %0t, cache %0d, CacheCore>", $time, cacheId,
+            " memRspId: ", fshow(memRspId),
+            " readReqs.isMember(memRspId): ", fshow(maybeNewReadReq)
+          ));
         end else if (!readReqs.empty) begin
           maybeNewReadReq = readReqs.nextData;
         end

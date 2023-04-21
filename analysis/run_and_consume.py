@@ -10,7 +10,7 @@ import log_consumer as logcon
 # Not used at the moment
 experiment_name = sys.argv[1]
 
-log_consumer = logcon.LogConsumer()
+log_consumer = logcon.LogConsumer(pipelined=True)
 
 
 async def main_loop():
@@ -18,6 +18,12 @@ async def main_loop():
         f"output/fromfile",
         "+tracing",
         "+pipe",
+        # "+taglookup",
+        # "+tagcontroller",
+        # "+AXItagcontroller",
+        # "+CacheCore",
+        # "+corderer",
+        # "+merge",
         stdout=asyncio.subprocess.PIPE,
     )
 
@@ -38,6 +44,7 @@ asyncio.run(main_loop())
 
 # Prints to experiment log file
 print(log_consumer.performance_str())
+# print(log_consumer)
 
 # Seems to be needed!!
 exit(0)

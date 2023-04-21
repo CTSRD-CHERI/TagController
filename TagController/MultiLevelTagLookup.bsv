@@ -273,6 +273,8 @@ module mkMultiLevelTagLookup #(
   PulseWire                    getReq <- mkPulseWire();
 
   // tag cache CacheCore module
+  // NOTE: cache id must be same as mID - as this is used for writeback requests
+  //       currently just set by hand
   WriteMissBehaviour writeBehaviour = WriteAllocate;
   CacheCore#(4, TSub#(Indices,2), 1)  tagCache <- mkCacheCore(
     1, writeBehaviour, RespondAll, TCache,

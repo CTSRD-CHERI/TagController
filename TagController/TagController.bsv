@@ -470,7 +470,8 @@ module mkTagController(TagControllerIfc);
         return (mRsps.notFull() && tagLookup.memory.response.canPut());
       endmethod
       method Action put(CheriMemResponse r);
-        MemReqType reqType = (r.masterID == mID) ? TagLookupReq : StdReq;
+        // >= instead of = because pipelined cache has multiple IDs!
+        MemReqType reqType = (r.masterID >= mID) ? TagLookupReq : StdReq;
         debug2("tagcontroller", $display("<time %0t TagController> response from memory: ", $time, fshow(reqType), " ", fshow(r)));
         if (reqType == TagLookupReq) begin
           debug2("tagcontroller", $display("<time %0t TagController> tag response", $time));

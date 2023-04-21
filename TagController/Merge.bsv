@@ -54,11 +54,11 @@ module mkMerge2CacheCore(MergeIfc#(2)) provisos (Add#(a_,5,CheriTransactionIDWid
     FIFOF#(CheriMemRequest)                 nextReq     <- mkBypassFIFOF;
     Vector#(2,  FIFOF#(CheriMemResponse))   rsp_fifos   <- replicateM(mkFIFOF);
     FIFOF#(InterfaceT)                      pendingReqs <- mkSizedFIFOF(16);
-    Reg#(Bit#(1))                           arbiter     <- mkReg(0);
 
     rule mergeInputs;
         Bool found = False;
-        Bit#(1) j = arbiter;
+        // ALWAYS prioritise leaf cache to prevent backpressure
+        Bit#(1) j = 1;
         for (Integer i=0; i<2; i=i+1) begin
             if (found == False && req_fifos[j].notEmpty) begin
                 debug2("merge", $display(
@@ -79,11 +79,8 @@ module mkMerge2CacheCore(MergeIfc#(2)) provisos (Add#(a_,5,CheriTransactionIDWid
             end
 
             // convert to Bool and back
-            j = pack(!(unpack(j)));
+            j = ~j;
         end
-
-        // Ensure we don't starve one of the slaves
-        arbiter <= pack(!unpack(arbiter));
     endrule
     
     Vector#(2, Slave#(CheriMemRequest, CheriMemResponse)) slaves;
@@ -101,14 +98,22 @@ module mkMerge2CacheCore(MergeIfc#(2)) provisos (Add#(a_,5,CheriTransactionIDWid
         interface CheckedPut response;
             method Bool canPut = (rsp_fifos[pendingReqs.first].notFull && pendingReqs.notEmpty);
             method Action put(CheriMemResponse resp);
+                let j = resp.transactionID[4];
                 debug2("merge", $display(
                     "<time %0t Merge> ", $time,
-                    "Sending backup cache response to cache: ", fshow(pendingReqs.first)
+                    "Sending backup cache response to cache: ", fshow(pendingReqs.first),
+                    " j: ", fshow(j)
                 )); 
                 Bit#(4) resp_trans_id = truncate(resp.transactionID);
                 resp.transactionID = zeroExtend(resp_trans_id);
 
-                rsp_fifos[pendingReqs.first].enq(resp);
+                debug2("merge", $display(
+                    "<time %0t Merge> ", $time,
+                    "Response: ", fshow(resp)
+                )); 
+
+                // rsp_fifos[pendingReqs.first].enq(resp);
+                rsp_fifos[j].enq(resp);
 
                 // Might get multiple read responses for one request
                 if (resp.operation matches tagged Read .rr) begin

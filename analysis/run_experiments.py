@@ -29,6 +29,7 @@ class Experiment:
                 print(op, end="", file=f)
                 if (i + 1) % FLUSH_PERIOD == 0:
                     f.flush()
+                    log_file.flush()
 
         print("Waiting for process to end")
         await fromfile_process.wait()

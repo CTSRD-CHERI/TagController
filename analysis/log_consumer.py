@@ -49,7 +49,7 @@ class Record:
 
 
 class LogConsumer:
-    def __init__(self):
+    def __init__(self, pipelined=False):
         # Arrays of Record objects
         self.reads = []
         self.sets = []
@@ -62,6 +62,8 @@ class LogConsumer:
         self.start_time = 0
         self.end_times = []
         self.total_tag_lookups = 0
+
+        self.pipelined = pipelined
 
     # Update records as instructed by new log line
     def update(self, line):
@@ -144,6 +146,8 @@ class LogConsumer:
         if re.search(re_no_leaf, line):
             record.need_leaf = False
             record.seen_leaf = True
+            record.folding = False
+            record.seen_folding = True
 
         # Should we set need_leaf to True
         if re.search(re_start_leaf, line):
@@ -184,10 +188,17 @@ class LogConsumer:
             if record.returned and record.seen_leaf and record.seen_folding:
                 # print(f"Clear done: {id}")
 
-                if record.folding:
-                    num_tag_ops = 4
+                if self.pipelined:
+                    if record.folding:
+                        num_tag_ops = 3
+                    else:
+                        num_tag_ops = 2 if record.need_leaf else 1
                 else:
-                    num_tag_ops = 3 if record.need_leaf else 1
+                    if record.folding:
+                        num_tag_ops = 4
+                    else:
+                        num_tag_ops = 3 if record.need_leaf else 1
+
                 self.clears.append(
                     Record(
                         req_dur=record.tc_dur,
