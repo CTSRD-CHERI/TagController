@@ -448,10 +448,12 @@ module mkPipelinedTagLookup #(
   // Pending fold requests - if valid has priority over others
   // NOTE no new fold requests will be created until previous one is sent
   // due to stalls. So no need to worry about enq to full fold request
-  FF#(ProcessedRequest,1) foldRequests <- mkUGFFBypass1();
+  // FF#(ProcessedRequest,1) foldRequests <- mkUGFFBypass1();
+  FF#(ProcessedRequest,1) foldRequests <- mkUGLFF1();
 
   // Pending root requests
-  FF#(ProcessedRequest, 1) pendingRootReqs <- mkUGFFBypass1();
+  // FF#(ProcessedRequest, 1) pendingRootReqs <- mkUGFFBypass1();
+  FF#(ProcessedRequest, 1) pendingRootReqs <- mkUGLFF1();
 
   // Processes request (e.g. from tag controller) and put it into pendingRootReqs 
   function Action handle_new_root_request(CheriTagRequest req);
@@ -654,7 +656,8 @@ module mkPipelinedTagLookup #(
 
   // Pending leaf requests
   // TODO: what size should this be!
-  FF#(ProcessedRequest, CentralBufferSize) pendingLeafReqs <- mkUGFFBypass();
+  // FF#(ProcessedRequest, CentralBufferSize) pendingLeafReqs <- mkUGFFBypass();
+  FF#(ProcessedRequest, CentralBufferSize) pendingLeafReqs <- mkUGLFF();
 
   rule consumeRootDebug;
     debug2("taglookup", $display( 
