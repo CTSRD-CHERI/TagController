@@ -382,11 +382,14 @@ typedef struct {
 // - When given a write, sets tags for that address and forwards data
 // - If tag set causes 0->1 root transition, writes all 0s in leaf
 // - Write responses ids are meaningless!! 
+`ifdef TAGCONTROLLER_BENCHMARKING
 module mkWriteAndSetTagControllerAXI#(
-  `ifdef TAGCONTROLLER_BENCHMARKING
   Bool inUse
-  `endif
-)(TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 8)))
+  )(TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 8)))
+`else 
+module mkWriteAndSetTagControllerAXI
+  (TagControllerAXI#(id_, addr_,TMul#(CheriBusBytes, 8)))
+`endif
   provisos (
     Add#(a__, id_, CheriTransactionIDWidth), 
     Add#(b__, id_, SizeOf#(ReqId)), 
@@ -492,7 +495,7 @@ module mkWriteAndSetTagControllerAXI#(
     shimMaster.slave.ar.put(tag_req);
   endaction;
 
-  function Action sendNewTags(CheriPhyAddr byte_addr, Bit#(128) new_tags,  String level) = action 
+  function Action sendNewTags(CheriPhyAddr byte_addr, Bit#(CheriDataWidth) new_tags,  String level) = action 
     // Write the new tags
     Bit#(64) tmp = zeroExtend(pack(byte_addr) & (~0 << pack(cheriBusBytes)));
 
@@ -554,7 +557,7 @@ module mkWriteAndSetTagControllerAXI#(
     TableLvl t = tableDesc[1];
     if (zeroAddr < unpack(pack(t.startAddr) + fromInteger(t.size))) begin
       // prepare memory request
-      Bit#(128) tags = 0;
+      Bit#(CheriDataWidth) tags = 0;
       sendNewTags(zeroAddr,tags,"zeroing root");
 
       zeros_without_resp.enq(?);
@@ -591,12 +594,12 @@ module mkWriteAndSetTagControllerAXI#(
     debug2("AXItagwriter", $display("<time %0t AXItagwriter> Received root tag response: ", $time, fshow(curr_tag_data)));
    
     let root_bit_addr <- getTableAddr(1,request);
-    Bit#(128) root_tags = curr_tag_data.rdata;
+    Bit#(CheriDataWidth) root_tags = curr_tag_data.rdata;
     debug2("AXItagwriter", $display("<time %0t AXItagwriter> Current root tags: ", $time, fshow(root_tags)));
 
 
     // Need to explicity inform that is 128 bits long or << will wrap around
-    Bit#(128) new_tags_set = 1;
+    Bit#(CheriDataWidth) new_tags_set = 1;
     // Need to extend this otherwise multiplying by 8 wraps it round
     Bit#(7) byte_offset = zeroExtend(root_bit_addr.byteAddr.byteOffset);
     new_tags_set = (
@@ -638,11 +641,11 @@ module mkWriteAndSetTagControllerAXI#(
     debug2("AXItagwriter", $display("<time %0t AXItagwriter> Received leaf tag response: ", $time, fshow(curr_tag_data)));
    
     let leaf_bit_addr <- getTableAddr(0,request);
-    Bit#(128) leaf_tags = curr_tag_data.rdata;
+    Bit#(CheriDataWidth) leaf_tags = curr_tag_data.rdata;
     debug2("AXItagwriter", $display("<time %0t AXItagwriter> Current leaf tags: ", $time, fshow(leaf_tags)));
 
     // Need to explicity inform that is 128 bits long or << will wrap around
-    Bit#(128) new_tags_set = 1;
+    Bit#(CheriDataWidth) new_tags_set = 1;
     // Need to extend this otherwise multiplying by 8 wraps it round
     Bit#(7) byte_offset = zeroExtend(leaf_bit_addr.byteAddr.byteOffset);
     new_tags_set = (

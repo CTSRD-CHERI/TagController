@@ -1230,4 +1230,14 @@ module mkPipelinedTagLookup #(
   );
   `endif
 
+
+  `ifdef STATCOUNTERS
+  interface Get cacheEvents;
+    method ActionValue#(ModuleEvents) get () = backupCache.cacheEvents.get();
+  endinterface
+  `elsif PERFORMANCE_MONITORING
+  method events = backupCache.events;
+  `endif
+
+
 endmodule

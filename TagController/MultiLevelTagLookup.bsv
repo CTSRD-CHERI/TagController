@@ -488,11 +488,9 @@ module mkMultiLevelTagLookup #(
   // initialisation rule
   /////////////////////////////////////////////////////////////////////////////
 
-`ifndef TAGCONTROLLER_BENCHMARKING
-  `ifdef BLUESIM
-    `define NO_TAGTABLE_ZEROING
-  `endif 
-`endif
+`ifdef BLUESIM
+  `define NO_TAGTABLE_ZEROING
+`endif 
 `ifdef RVFI_DII
 `define NO_TAGTABLE_ZEROING
 `endif
@@ -1392,5 +1390,13 @@ module mkNullMultiLevelTagLookup (TagLookupIfc);
 
   `ifdef TAGCONTROLLER_BENCHMARKING
   method Bool isIdle = !readReqs.notEmpty;
+  `endif
+
+  `ifdef STATCOUNTERS
+  interface Get cacheEvents;
+    method ActionValue#(ModuleEvents) get () = tagCache.cacheEvents.get();
+  endinterface
+  `elsif PERFORMANCE_MONITORING
+  method events = tagCache.events;
   `endif
 endmodule
