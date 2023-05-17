@@ -246,6 +246,10 @@ class LogConsumer:
             + f" Cache ops:  {num_tag_ops}\n"
             + f" Cache ops per request: {ops_per_request}\n"
             + f" Cache ops per cycle:   {tag_op_throughput}\n"
+            + f" \n"
+            + f" Reads: {len(self.reads)}\n"
+            + f" Clears: {len(self.clears)}\n"
+            + f" Sets: {len(self.sets)}\n"
         )
 
     def __repr__(self):
