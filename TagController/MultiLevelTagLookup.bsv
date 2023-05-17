@@ -1397,6 +1397,6 @@ module mkNullMultiLevelTagLookup (TagLookupIfc);
     method ActionValue#(ModuleEvents) get () = tagCache.cacheEvents.get();
   endinterface
   `elsif PERFORMANCE_MONITORING
-  method events = tagCache.events;
+  method events = ?;
   `endif
 endmodule

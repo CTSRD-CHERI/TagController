@@ -166,7 +166,7 @@ module mkPipelinedTagLookup #(
   // memory response fifo
   FF#(CheriMemResponse, 2) rootBackupRsps <- mkUGFFDebug("TagLookup_rootBackupRsps");
 
-  CacheCore#(4, TSub#(Indices,3), CacheOpsInFlight)  rootCache <- mkCacheCore(
+  CacheCore#(4, TSub#(Indices,4), CacheOpsInFlight)  rootCache <- mkCacheCore(
     1, WriteAllocate, RespondAll, TCache,
     zeroExtend(rootBackupReqs.remaining()), ff2fifof(rootBackupReqs), ff2fifof(rootBackupRsps));
     
@@ -187,8 +187,8 @@ module mkPipelinedTagLookup #(
   // memory response fifo
   FF#(CheriMemResponse, 2) leafBackupRsps <- mkUGFFDebug("TagLookup_leafBackupRsps");
 
-  CacheCore#(4, TSub#(Indices,3), CacheOpsInFlight)  leafCache <- mkCacheCore(
-    2, WriteAllocate, RespondAll, TCache,
+  CacheCore#(4, TSub#(Indices,4), CacheOpsInFlight)  leafCache <- mkCacheCore(
+    1, WriteAllocate, RespondAll, TCache,
     zeroExtend(leafBackupReqs.remaining()), ff2fifof(leafBackupReqs), ff2fifof(leafBackupRsps));
 
   // Simply stuff "True" into commits because we never cancel transactions here
@@ -211,7 +211,7 @@ module mkPipelinedTagLookup #(
   // cache ID must be same as mID as this is used for writeback requests to DRAM
   // For now have just set both to 1 by hand
   CacheCore#(4, TSub#(Indices,2), CacheOpsInFlight)  backupCache <- mkCacheCore(
-    3, WriteAllocate, RespondAll, TCache,
+    1, WriteAllocate, RespondAll, TCache,
     zeroExtend(backupMemoryReqs.remaining()), ff2fifof(backupMemoryReqs), ff2fifof(backupMemoryRsps));
   
   // Simply stuff "True" into commits because we never cancel transactions here
@@ -439,11 +439,18 @@ module mkPipelinedTagLookup #(
     RequestInfo         // Data type
   ) inFlightRootReqs <- mkSmallBag();
   
+
+  // RUNTYPE: LOCK ON FOLD
   // If there might be a fold later then stall
   // multiple ports so can unstall and issue req in same cycle
   // can set stalled to false after either root lookup (no bubble)
   // or leaf lookup (1 bubble). Fold also only inserts 1 bubble.
   Reg#(Bool) rootStalled[3] <- mkCReg(3, False);
+
+  // Bag#(
+  //   `TagOpsInFlight,
+  //   TagRequestID
+  // ) MayFoldRoot <- mkSmallBag();
 
   // Pending fold requests - if valid has priority over others
   // NOTE no new fold requests will be created until previous one is sent

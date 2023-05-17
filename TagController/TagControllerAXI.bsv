@@ -695,4 +695,8 @@ module mkWriteAndSetTagControllerAXI
   endmethod
   method Bool isIdle = state==WaitingForReq;
 `endif
+
+`ifdef PERFORMANCE_MONITORING
+  method events = ?;
+`endif
 endmodule
