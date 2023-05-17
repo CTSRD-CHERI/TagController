@@ -445,12 +445,13 @@ module mkPipelinedTagLookup #(
   // multiple ports so can unstall and issue req in same cycle
   // can set stalled to false after either root lookup (no bubble)
   // or leaf lookup (1 bubble). Fold also only inserts 1 bubble.
-  Reg#(Bool) rootStalled[3] <- mkCReg(3, False);
+  // Reg#(Bool) rootStalled[3] <- mkCReg(3, False);
 
-  // Bag#(
-  //   `TagOpsInFlight,
-  //   TagRequestID
-  // ) MayFoldRoot <- mkSmallBag();
+  MayFoldBag#(
+    `TagOpsInFlight,
+    CapNumber, // Key is cap number >> tableDesc[rootLvl].shiftAmnt
+    TagRequestID
+  ) mayFoldRoot <- mkMayFoldBag();
 
   // Pending fold requests - if valid has priority over others
   // NOTE no new fold requests will be created until previous one is sent
@@ -581,7 +582,9 @@ module mkPipelinedTagLookup #(
   rule issueRootRequest (
     rootCache.canPut && 
     (
-      (pendingRootReqs.notEmpty && !rootStalled[2]) 
+      // RUNTYPE: LOCK ON FOLD
+      // (pendingRootReqs.notEmpty && !rootStalled[2]) 
+      pendingRootReqs.notEmpty
       || 
       foldRequests.notEmpty
     ) &&
@@ -589,7 +592,26 @@ module mkPipelinedTagLookup #(
     !inFlightRootReqs.isMember(rootTransNum).v &&
     !inFlightRootReqs.full
   );
+    // RUNTYPE: LOCK ON FOLD 
+    // let doFold = foldRequests.notEmpty;
+
+    let doFold = False;
+    let foldRootNumber = ?;
     if (foldRequests.notEmpty) begin 
+      let mReq = foldRequests.first.req;
+      let req_info = foldRequests.first.info;
+
+      foldRootNumber = req_info.capNumber >> tableDesc[rootLvl].shiftAmnt;
+      let may_fold_result = mayFoldRoot.isMember(foldRootNumber);
+
+      if (may_fold_result.v && may_fold_result.d == req_info.request_id) begin
+        doFold = True;
+      end else begin 
+        foldRequests.deq();
+      end
+    end 
+
+    if (doFold) begin
       let mReq = foldRequests.first.req;
       let req_info = foldRequests.first.info;
 
@@ -610,7 +632,10 @@ module mkPipelinedTagLookup #(
       
       rootTransNum <= rootTransNum + 1;
       foldRequests.deq();
-      rootStalled[2] <= False;
+
+      // RUNTYPE: Lock on fold
+      // rootStalled[2] <= False;
+      mayFoldRoot.remove_all(foldRootNumber);
     end else if (pendingRootReqs.notEmpty) begin 
       let mReq = pendingRootReqs.first.req;
       let req_info = pendingRootReqs.first.info;
@@ -636,7 +661,14 @@ module mkPipelinedTagLookup #(
       rootTransNum <= rootTransNum + 1;
       pendingRootReqs.deq();
 
-      if (req_info.opType == Clear) rootStalled[2] <= True;
+      // RUNTYPE: Lock on fold
+      // if (req_info.opType == Clear) rootStalled[2] <= True;
+      let req_root_number = req_info.capNumber >> tableDesc[rootLvl].shiftAmnt;
+
+      // Declare that this request may want to fold this root tag
+      if (req_info.opType == Clear) mayFoldRoot.insert(req_root_number, req_info.request_id);
+      // Prevent any in flight clears from folding this root tag
+      if (req_info.opType == Set) mayFoldRoot.remove_all(req_root_number);
     end
   endrule
 
@@ -841,8 +873,13 @@ module mkPipelinedTagLookup #(
           `endif
           
           doTagRequest = False;
-          // No risk of a fold so can unstall the root
-          rootStalled[0] <= False;
+          // RUNTYPE: Lock on fold
+          // // No risk of a fold so can unstall the root
+          // rootStalled[0] <= False;
+          mayFoldRoot.remove_after_root(
+            request_info.capNumber >> tableDesc[rootLvl].shiftAmnt,
+            request_info.request_id
+          );
           root_ended.send();
         end else begin 
           debug2("taglookup",
@@ -1056,7 +1093,14 @@ module mkPipelinedTagLookup #(
             "end LEAF | write | NO FOLD"
           )); 
           `endif
-          rootStalled[1] <= False;
+          // RUNTYPE: Lock on fold
+          // // No risk of a fold so can unstall the root
+          // rootStalled[1] <= False;
+          mayFoldRoot.remove_after_leaf(
+            request_info.capNumber >> tableDesc[rootLvl].shiftAmnt,
+            request_info.request_id
+          );
+
           leaf_ended.send();
         end
       end 

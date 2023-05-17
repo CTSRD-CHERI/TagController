@@ -399,9 +399,9 @@ module mkTagController(TagControllerIfc);
               debug2("tagcontroller", $display("<time %0t TagController> Space left in pendingLookupRequests: ", $time, " ", fshow(pendingLookupRequests.remaining())));    
               pendingLookupRequests.enq(tagReq);
 
-              // It is OK for writes to have same request id as other requests
-              // because they do not produce responses!
-              // currentRequestID <= currentRequestID + 1;
+              // Need unique request ID for each in flight request
+              // required both for tracking clear requests and responses from reads
+              currentRequestID <= currentRequestID + 1;
 
               newTagWrite = unpack(0);
             end

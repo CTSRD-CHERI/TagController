@@ -231,3 +231,140 @@ module mkFFBag (FFBag#(numElems, keyType, datType, depth))
   method Bool full = (any(isFull, fifos) || all_assigned);
 
 endmodule
+
+interface MayFoldBag#(numeric type numElems, type keyType, type datType);
+  method VnD#(datType)   isMember(keyType x);
+  method Bool            dataMatch(datType x);
+  method Action          insert(keyType x, datType d);
+  method Bool            full;
+  method Bool            nextFull;
+  method Bool            empty;
+  method Action          remove_all(keyType x);
+  method Action          remove_after_root(keyType x, datType d);
+  method Action          remove_after_leaf(keyType x, datType d);
+  method VnD#(keyType)   nextKey();
+  method VnD#(datType)   nextData();
+  method Action          iterateNext();
+endinterface
+
+module mkMayFoldBag (MayFoldBag#(numElems, keyType, datType))
+  provisos ( Bits#(keyType, keyTypeSize)
+           , Bits#(datType, datTypeSize)
+           , Eq#(keyType)
+           , Eq#(datType)
+           , FShow#(VnD#(Bag::Entry#(keyType, datType))));
+
+  // A small bag of elements, stored in registers
+  Reg#(Vector#(numElems, VnD#(Entry#(keyType, datType)))) bag <-
+    mkReg(replicate(VnD{v: False, d: ?}));
+
+  // An item to be inserted
+  Wire#(VnD#(Entry#(keyType, datType))) insertItem <- mkDWire(VnD{v: False, d: ?});
+
+  // An item to be removed
+  Wire#(VnD#(keyType)) removeItem1 <- mkDWire(VnD{v: False, d: ?});
+  Wire#(VnD#(keyType)) removeItem2 <- mkDWire(VnD{v: False, d: ?});
+  Wire#(VnD#(keyType)) removeItem3 <- mkDWire(VnD{v: False, d: ?});
+
+  Reg#(Bit#(TLog#(numElems))) nextValidKeyReg <- mkRegU;
+  Wire#(Bool) iterateNextKeyWire <- mkDWire(False);
+
+  function Bool valid(VnD#(data_t) val) = val.v;
+  function Bool notValid(VnD#(data_t) val) = !val.v;
+
+  function func_isMember(keyType x);
+    VnD#(datType) ret = VnD{v: False, d: ?};
+    for (Integer i = 0; i < valueOf(numElems); i=i+1) begin
+      if (bag[i].v && bag[i].d.key == x)
+        ret = VnD{v: True, d: bag[i].d.dat};
+    end
+    return ret;
+  endfunction
+
+
+  rule updateBag;
+    Bool inserted = False;
+    Integer insert = 0;
+    Vector#(numElems, VnD#(Entry#(keyType, datType))) newBag = bag;
+    for (Integer i = 0; i < valueOf(numElems); i=i+1) begin
+      // Current behaviour is: remove item, and then insert.
+      if (removeItem1.v && bag[i].d.key == removeItem1.d)
+        newBag[i].v = False;
+      if (removeItem2.v && bag[i].d.key == removeItem2.d)
+        newBag[i].v = False;
+      if (removeItem3.v && bag[i].d.key == removeItem3.d)
+        newBag[i].v = False;
+      if (insertItem.v && bag[i].d.key == insertItem.d.key) begin
+        if (!inserted) newBag[i].v = True;
+        newBag[i].d.dat = insertItem.d.dat;
+        inserted = True;
+      end
+      // Make sure this check reflects a concurrant invalidate.
+      if (!newBag[i].v) insert = i;
+    end
+    // If it hasn't been inserted, put it in an empty spot.
+    // Trust that they didn't insert when full.
+    if (insertItem.v && !inserted) newBag[insert] = insertItem;
+    bag <= newBag;
+
+    if (!newBag[nextValidKeyReg].v || iterateNextKeyWire) begin
+      Bit#(TLog#(numElems)) key = 0;
+      for (Integer i = 0; i < valueOf(numElems); i=i+1) begin
+        Bit#(TLog#(numElems)) idx = nextValidKeyReg + fromInteger(i);
+        if (newBag[idx].v) key = idx;
+      end
+      nextValidKeyReg <= key;
+      if (!newBag[key].v && !all(notValid, newBag)) panic($display("Panic! Returning invalid element for next when not empty!"));
+    end
+  endrule
+
+  method VnD#(datType) isMember(keyType x);
+    return func_isMember(x);
+  endmethod
+
+  method Bool dataMatch(datType x);
+    Bool ret = False;
+    for (Integer i = 0; i < valueOf(numElems); i=i+1) begin
+      if (bag[i].v && bag[i].d.dat == x)
+        ret = True;
+    end
+    return ret;
+  endmethod
+
+  method Action insert(keyType x, datType d);
+    insertItem <= VnD{v: True, d: Entry{key: x, dat: d}};
+  endmethod
+
+  method Bool full;
+    return all(valid, bag);
+  endmethod
+
+  method Bool nextFull;
+    return all(valid, bag) && !removeItem1.v && !removeItem2.v && !removeItem3.v;
+  endmethod
+
+  method Bool empty;
+    return all(notValid, bag);
+  endmethod
+
+  method Action remove_all(keyType x);
+    removeItem1 <= VnD{v: True, d: x};
+  endmethod
+
+  method Action remove_after_root(keyType x, datType d);
+    let entry = func_isMember(x);
+    if (entry.v && entry.d == d) removeItem2 <= VnD{v: True, d: x};
+  endmethod
+
+  method Action remove_after_leaf(keyType x, datType d);
+    let entry = func_isMember(x);
+    if (entry.v && entry.d == d) removeItem3 <= VnD{v: True, d: x};
+  endmethod
+
+  method VnD#(keyType) nextKey() = VnD{v: bag[nextValidKeyReg].v, d: bag[nextValidKeyReg].d.key};
+  method VnD#(datType) nextData() = VnD{v: bag[nextValidKeyReg].v, d: bag[nextValidKeyReg].d.dat};
+  method Action iterateNext();
+    iterateNextKeyWire <= True;
+  endmethod
+
+endmodule
