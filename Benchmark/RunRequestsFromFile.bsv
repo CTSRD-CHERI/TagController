@@ -172,7 +172,7 @@ module mkRequestsFromFile (Empty);
     // Initialises with alternatign 1s and 0s
     AXI4_Slave#(
         SizeOf#(MemTypesCHERI::ReqId), AddressLength, CacheLineLength, 0, 0, 0, 0, 0
-    ) dram <- BenchModelDRAM::mkModelDRAM(4, 1, reset_by r.new_rst);
+    ) dram <- BenchModelDRAM::mkModelDRAM(4, 2, reset_by r.new_rst);
 
     // Only the one with isInUse set will consume DRAM responses
     mkConnection(tagcontroller_initialiser.master, dram, reset_by r.new_rst);
@@ -310,6 +310,7 @@ module mkFileToTagController#(
             addrReq.arid = truncate(idCount);
             idCount <= idCount + 1;
             addrReq.araddr = addr;
+            addrReq.arlen = 2; //TODO (what size to put here?)
             addrReq.arsize = 16; //TODO (what size to put here?)
             addrReq.arcache = 4'b1011; //TODO (what to put here?)
             
