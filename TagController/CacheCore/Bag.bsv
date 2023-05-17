@@ -272,7 +272,7 @@ module mkMayFoldBag (MayFoldBag#(numElems, keyType, datType))
   function Bool valid(VnD#(data_t) val) = val.v;
   function Bool notValid(VnD#(data_t) val) = !val.v;
 
-  function func_isMember(keyType x);
+  function VnD#(datType) func_isMember(keyType x);
     VnD#(datType) ret = VnD{v: False, d: ?};
     for (Integer i = 0; i < valueOf(numElems); i=i+1) begin
       if (bag[i].v && bag[i].d.key == x)

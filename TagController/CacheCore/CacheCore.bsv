@@ -481,7 +481,15 @@ module mkCacheCore#(Integer cacheId,
         orderer.lookupReport(getReqId(newCt.req), ca.bank, ca.bank, ca.bank + truncate(size));
       end
       
-      if ((memRsps.notEmpty && !orderer.slaveRspIsOngoing()) || !orderer.slaveReqServeReady(reqId,truncateLSB(lookupReq.addr.lineNumber))) begin
+      // RUNTYPE: No default mem response
+      // Cannot determine whether serve is possible until finishLookup has completed
+      // Therefore, if we know memory response will fail, try to serve just in case!
+      // This means memory response even if response not yet ongoing (not a big issue)
+      
+      // OLD version:
+      // if ((memRsps.notEmpty && !orderer.slaveRspIsOngoing()) || !orderer.slaveReqServeReady(reqId,truncateLSB(lookupReq.addr.lineNumber))) begin
+      // NEW version:
+      if (memRsps.notEmpty) begin
         valid = False;
         //newCt = cts;
         newCt.fresh = False;

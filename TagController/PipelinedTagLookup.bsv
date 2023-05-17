@@ -49,7 +49,7 @@ import VnD::*;
 
 // How many tag ops per cache can be in flight
 // RUNTYPE: limit concurrency
-`define TagOpsInFlight 8
+`define TagOpsInFlight 16
 // typedef 8 TagOpsInFlight;
 
 // RUNTYPE: out of order
@@ -188,7 +188,7 @@ module mkPipelinedTagLookup #(
   FF#(CheriMemResponse, 2) leafBackupRsps <- mkUGFFDebug("TagLookup_leafBackupRsps");
 
   CacheCore#(4, TSub#(Indices,4), CacheOpsInFlight)  leafCache <- mkCacheCore(
-    1, WriteAllocate, RespondAll, TCache,
+    2, WriteAllocate, RespondAll, TCache,
     zeroExtend(leafBackupReqs.remaining()), ff2fifof(leafBackupReqs), ff2fifof(leafBackupRsps));
 
   // Simply stuff "True" into commits because we never cancel transactions here
@@ -211,7 +211,7 @@ module mkPipelinedTagLookup #(
   // cache ID must be same as mID as this is used for writeback requests to DRAM
   // For now have just set both to 1 by hand
   CacheCore#(4, TSub#(Indices,2), CacheOpsInFlight)  backupCache <- mkCacheCore(
-    1, WriteAllocate, RespondAll, TCache,
+    3, WriteAllocate, RespondAll, TCache,
     zeroExtend(backupMemoryReqs.remaining()), ff2fifof(backupMemoryReqs), ff2fifof(backupMemoryRsps));
   
   // Simply stuff "True" into commits because we never cancel transactions here
@@ -457,11 +457,11 @@ module mkPipelinedTagLookup #(
   // NOTE no new fold requests will be created until previous one is sent
   // due to stalls. So no need to worry about enq to full fold request
   // FF#(ProcessedRequest,1) foldRequests <- mkUGFFBypass1();
-  FF#(ProcessedRequest,1) foldRequests <- mkUGLFF1();
+  FF#(ProcessedRequest, 2) foldRequests <- mkUGLFF();
 
   // Pending root requests
   // FF#(ProcessedRequest, 1) pendingRootReqs <- mkUGFFBypass1();
-  FF#(ProcessedRequest, 1) pendingRootReqs <- mkUGLFF1();
+  FF#(ProcessedRequest, 2) pendingRootReqs <- mkUGLFF();
 
   // Processes request (e.g. from tag controller) and put it into pendingRootReqs 
   function Action handle_new_root_request(CheriTagRequest req);
@@ -691,7 +691,8 @@ module mkPipelinedTagLookup #(
   // There could be as many as InFlight/2 cycles where an early response is
   // created but a leaf response id dequeued. Add an extra slot so consumeRootResponse
   // can be called even if InFlight/2 requests are in the fifo
-  FF#(LookupResponse, TAdd#(TDiv#(`TagOpsInFlight,2),1)) earlyRsps <- mkUGFFDebug("TagLookup_earlyRsps");
+  // FF#(LookupResponse, TAdd#(TDiv#(`TagOpsInFlight,2),1)) earlyRsps <- mkUGFFDebug("TagLookup_earlyRsps");
+  FF#(LookupResponse, `TagOpsInFlight) earlyRsps <- mkUGFFDebug("TagLookup_earlyRsps");
 
   // Pending leaf requests
   // TODO: what size should this be!
@@ -880,7 +881,16 @@ module mkPipelinedTagLookup #(
             request_info.capNumber >> tableDesc[rootLvl].shiftAmnt,
             request_info.request_id
           );
-          root_ended.send();
+          // root_ended.send();
+          earlyRsps.enq(
+            LookupResponse{
+              `ifdef TAGCONTROLLER_BENCHMARKING
+              bench_id: request_info.bench_id,
+              `endif
+              tags: unpack(0),
+              request_id: request_info.request_id
+            }
+          );
         end else begin 
           debug2("taglookup",
             $display(
@@ -913,7 +923,16 @@ module mkPipelinedTagLookup #(
       Fold: begin 
         // Do nothing!
         doTagRequest = False;
-        root_ended.send();
+        // root_ended.send();
+        earlyRsps.enq(
+          LookupResponse{
+            `ifdef TAGCONTROLLER_BENCHMARKING
+            bench_id: request_info.bench_id,
+            `endif
+            tags: unpack(0),
+            request_id: request_info.request_id
+          }
+        );
       end 
     endcase
 
@@ -1040,7 +1059,16 @@ module mkPipelinedTagLookup #(
           "end LEAF | write"
         ));
         `endif
-        leaf_ended.send();
+        // leaf_ended.send();
+        lateRsps.enq(
+          LookupResponse{
+            `ifdef TAGCONTROLLER_BENCHMARKING
+            bench_id: request_info.bench_id,
+            `endif
+            tags: unpack(0),
+            request_id: request_info.request_id
+          }
+        );
       end 
       Clear: begin 
 
@@ -1101,7 +1129,16 @@ module mkPipelinedTagLookup #(
             request_info.request_id
           );
 
-          leaf_ended.send();
+          // leaf_ended.send();
+          lateRsps.enq(
+            LookupResponse{
+              `ifdef TAGCONTROLLER_BENCHMARKING
+              bench_id: request_info.bench_id,
+              `endif
+              tags: unpack(0),
+              request_id: request_info.request_id
+            }
+          );
         end
       end 
       // Never send Fold requests to leaf

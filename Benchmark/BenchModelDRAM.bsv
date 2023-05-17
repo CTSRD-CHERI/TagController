@@ -53,6 +53,7 @@ import AXI_Helpers  :: *;
 
 module mkModelDRAMGeneric#
          ( Integer maxOutstandingReqs         // Max outstanding requests
+         , Integer latency                    // Latency (cycles)
          , RegFile# (Bit#(wordAddrWidth)
                    , Bit#(128)
                    ) ram                      // For storage
@@ -70,6 +71,9 @@ module mkModelDRAMGeneric#
   // Internal request FIFO contains requests and a flag which denotes
   // the last read request in a burst read.
   FIFOF#(Tuple2#(DRAMReq#(SizeOf#(MemTypesCHERI::ReqId),addrWidth), Bool))  reqFifo <- mkFIFOF;
+
+  // Latency-introducing response FIFO
+  FIFOF#(Maybe#(DRAMRsp#(SizeOf#(MemTypesCHERI::ReqId)))) preRespFifo <- mkSizedFIFOF(latency);
 
   // Storage implemented as a register file
   //RegFile#(Bit#(addrWidth), Bit#(256)) ram <- mkRegFileFull;
@@ -94,8 +98,11 @@ module mkModelDRAMGeneric#
     debug2("dram", $display("<time %0t DRAM> fillPreReqFifoRead ", $time, fshow(ar)));
   endrule
 
+  // State for initialisation
+  Reg#(Bool) init <- mkConfigReg(True);
+
   // Unroll burst read requests
-  rule unrollBurstReads;
+  rule unrollBurstReads (!init);
     // Extract request
     DRAMReq#(SizeOf#(MemTypesCHERI::ReqId),addrWidth) req  = preReqFifo.first;
 
@@ -128,7 +135,7 @@ module mkModelDRAMGeneric#
   endrule
 
   // Produce responses
-  rule produceResponses;
+  rule produceResponses (!init);
     // Extract request
     let req  = tpl_1(reqFifo.first);
     let last = tpl_2(reqFifo.first);
@@ -184,8 +191,24 @@ module mkModelDRAMGeneric#
     endcase
 
     // Respond
-    if (validResponse) respFifo.enq(resp);
+    // if (validResponse) respFifo.enq(resp);
+    preRespFifo.enq(validResponse ? tagged Valid resp : tagged Invalid);
     debug2("dram", $display("<time %0t DRAM> produceFinalResponses validResponse: %d ", $time, validResponse, fshow(resp)));
+  endrule
+
+  rule introduceLatency;
+    preRespFifo.enq(tagged Invalid);
+  endrule
+
+  rule produceFinalResponses (!init);
+    let resp = preRespFifo.first;
+    if (resp matches tagged Valid .r) respFifo.enq(r);
+    preRespFifo.deq;
+  endrule
+
+  // Initialise until pre-response FIFO is full
+  rule initialise (init && !preRespFifo.notFull);
+    init <= False;
   endrule
 
   rule drainRespFifo;
@@ -203,21 +226,25 @@ endmodule
 
 // Version using a standard register file
 module mkModelDRAM#
-         ( Integer maxOutstandingReqs )       // Max outstanding requests
+         ( Integer maxOutstandingReqs         // Max outstanding requests
+         , Integer latency                    // Latency (cycles)
+         )
          (AXI4_Slave#(SizeOf#(MemTypesCHERI::ReqId), addrWidth, 128, 0, 0, 0, 0, 0))
          provisos (Add#(wordAddrWidth, 4, addrWidth));
   RegFile#(Bit#(wordAddrWidth), Bit#(128)) ram <- mkRegFileFull;
-  let dram <- mkModelDRAMGeneric(maxOutstandingReqs, ram);
+  let dram <- mkModelDRAMGeneric(maxOutstandingReqs, latency, ram);
   return dram;
 endmodule
 
 // Version using an associative register file.  Must be small, but has
 // the advantage of being efficiently resettable to a predefined state.
 module mkModelDRAMAssoc#
-         ( Integer maxOutstandingReqs )         // Max outstanding requests
+         ( Integer maxOutstandingReqs         // Max outstanding requests
+         , Integer latency                    // Latency (cycles)
+         )
          (AXI4_Slave#(SizeOf#(MemTypesCHERI::ReqId), addrWidth, 128, 0, 0, 0, 0, 0))
          provisos (Add#(wordAddrWidth, 4, addrWidth));
   RegFile#(Bit#(wordAddrWidth), Bit#(128)) ram <- mkRegFileAssoc;
-  let dram <- mkModelDRAMGeneric(maxOutstandingReqs, ram);
+  let dram <- mkModelDRAMGeneric(maxOutstandingReqs, latency, ram);
   return dram;
 endmodule
