@@ -4,7 +4,7 @@ import asyncio
 REQUEST_FILE = "dramtraces/fromFile_input.dat"
 REQUEST_PIPE = "dramtraces/fromFile_input.pipe"
 
-FLUSH_PERIOD = 5
+FLUSH_PERIOD = 1000
 
 
 class Experiment:
@@ -30,6 +30,7 @@ class Experiment:
                 if (i + 1) % FLUSH_PERIOD == 0:
                     f.flush()
                     log_file.flush()
+                    print(f"Instructions sent: {i}")
 
         print("Waiting for process to end")
         await fromfile_process.wait()

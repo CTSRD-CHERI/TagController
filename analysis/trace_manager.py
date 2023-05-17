@@ -149,7 +149,7 @@ class GZIPRequestGenerator(RequestGenerator):
         yield MemoryOp(END_INIT)
 
         with gzip.open(self.input_file, "rb") as f:
-            for _ in range(1000000):
+            for _ in range(10000):
                 op = f.read(24)
                 (op_type, tags, size, vaddr, paddr) = struct.unpack(STRUCT_FORMAT, op)
                 # print(
