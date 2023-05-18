@@ -551,7 +551,7 @@ module mkWriteAndSetTagControllerAXI
   endrule
 
   Reg#(CheriPhyAddr) zeroAddr <- mkReg(unpack(pack(table_start_addr)));
-  FF#(Bool, 16) zeros_without_resp <- mkUGFFDebug("TagLookup_useNextRsp");
+  FF#(Bool, 32) zeros_without_resp <- mkUGFFDebug("zeros_without_resp");
 
   rule doZeroing (state == Zeroing); 
     TableLvl t = tableDesc[1];

@@ -310,7 +310,7 @@ module mkFileToTagController#(
             addrReq.arid = truncate(idCount);
             idCount <= idCount + 1;
             addrReq.araddr = addr;
-            addrReq.arlen = 2; //TODO (what size to put here?)
+            addrReq.arlen = 0; //TODO (what size to put here?)
             addrReq.arsize = 16; //TODO (what size to put here?)
             addrReq.arcache = 4'b1011; //TODO (what to put here?)
             

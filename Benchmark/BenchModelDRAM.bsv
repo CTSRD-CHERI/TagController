@@ -44,12 +44,15 @@ import RegFile      :: *;
 import Vector       :: *;
 import FIFO         :: *;
 import FIFOF        :: *;
+import FF           :: *;
 import Debug        :: *;
 import SourceSink   :: *;
 import BenchRegFileAssoc :: *;
 import BenchRegFileHash  :: *;
 import BlueAXI4     :: *;
 import AXI_Helpers  :: *;
+
+`define LATENCY 2
 
 module mkModelDRAMGeneric#
          ( Integer maxOutstandingReqs         // Max outstanding requests
@@ -73,7 +76,7 @@ module mkModelDRAMGeneric#
   FIFOF#(Tuple2#(DRAMReq#(SizeOf#(MemTypesCHERI::ReqId),addrWidth), Bool))  reqFifo <- mkFIFOF;
 
   // Latency-introducing response FIFO
-  FIFOF#(Maybe#(DRAMRsp#(SizeOf#(MemTypesCHERI::ReqId)))) preRespFifo <- mkSizedFIFOF(latency);
+  FF#(Maybe#(DRAMRsp#(SizeOf#(MemTypesCHERI::ReqId))), `LATENCY) preRespFifo <- mkLFF;
 
   // Storage implemented as a register file
   //RegFile#(Bit#(addrWidth), Bit#(256)) ram <- mkRegFileFull;
@@ -191,8 +194,8 @@ module mkModelDRAMGeneric#
     endcase
 
     // Respond
-    // if (validResponse) respFifo.enq(resp);
-    preRespFifo.enq(validResponse ? tagged Valid resp : tagged Invalid);
+    if (validResponse) respFifo.enq(resp);
+    // preRespFifo.enq(validResponse ? tagged Valid resp : tagged Invalid);
     debug2("dram", $display("<time %0t DRAM> produceFinalResponses validResponse: %d ", $time, validResponse, fshow(resp)));
   endrule
 
