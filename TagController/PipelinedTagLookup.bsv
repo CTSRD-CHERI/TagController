@@ -166,7 +166,11 @@ module mkPipelinedTagLookup #(
   // memory response fifo
   FF#(CheriMemResponse, 2) rootBackupRsps <- mkUGFFDebug("TagLookup_rootBackupRsps");
 
+  `ifdef SMALL_TAG_CACHE
+  CacheCore#(4, TSub#(Indices,2), CacheOpsInFlight)  rootCache <- mkCacheCore(
+  `else 
   CacheCore#(4, TSub#(Indices,4), CacheOpsInFlight)  rootCache <- mkCacheCore(
+  `endif
     1, WriteAllocate, RespondAll, TCache,
     zeroExtend(rootBackupReqs.remaining()), ff2fifof(rootBackupReqs), ff2fifof(rootBackupRsps));
     
@@ -187,8 +191,12 @@ module mkPipelinedTagLookup #(
   // memory response fifo
   FF#(CheriMemResponse, 2) leafBackupRsps <- mkUGFFDebug("TagLookup_leafBackupRsps");
 
+  `ifdef SMALL_TAG_CACHE
+  CacheCore#(4, TSub#(Indices,2), CacheOpsInFlight)  leafCache <- mkCacheCore(
+  `else 
   CacheCore#(4, TSub#(Indices,4), CacheOpsInFlight)  leafCache <- mkCacheCore(
-    2, WriteAllocate, RespondAll, TCache,
+  `endif
+    1, WriteAllocate, RespondAll, TCache,
     zeroExtend(leafBackupReqs.remaining()), ff2fifof(leafBackupReqs), ff2fifof(leafBackupRsps));
 
   // Simply stuff "True" into commits because we never cancel transactions here
@@ -211,7 +219,7 @@ module mkPipelinedTagLookup #(
   // cache ID must be same as mID as this is used for writeback requests to DRAM
   // For now have just set both to 1 by hand
   CacheCore#(4, TSub#(Indices,2), CacheOpsInFlight)  backupCache <- mkCacheCore(
-    3, WriteAllocate, RespondAll, TCache,
+    1, WriteAllocate, RespondAll, TCache,
     zeroExtend(backupMemoryReqs.remaining()), ff2fifof(backupMemoryReqs), ff2fifof(backupMemoryRsps));
   
   // Simply stuff "True" into commits because we never cancel transactions here
