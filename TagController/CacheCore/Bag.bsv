@@ -181,7 +181,6 @@ module mkFFBag (FFBag#(numElems, keyType, datType, depth))
   provisos ( Bits#(keyType, keyTypeSize)
            , Bits#(datType, datTypeSize)
            , Eq#(keyType)
-           , Eq#(datType)
            , FShow#(VnD#(Bag::Entry#(keyType, datType)))
            , Log#(numElems, indexSize));
 
