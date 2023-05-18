@@ -65,7 +65,7 @@ module mkModelDRAMGeneric#
          provisos (Add#(wordAddrWidth, 4, addrWidth)
          );
 
-  AXI4_Shim#(SizeOf#(MemTypesCHERI::ReqId), addrWidth, 128, 0, 0, 0, 0, 0) shim <- mkAXI4Shim();
+  AXI4_Shim#(SizeOf#(MemTypesCHERI::ReqId), addrWidth, 128, 0, 0, 0, 0, 0) shim <- mkAXI4ShimBypassFIFOF();
 
   // Slave interface
   FIFOF#(DRAMReq#(SizeOf#(MemTypesCHERI::ReqId), addrWidth)) preReqFifo <- mkSizedFIFOF(maxOutstandingReqs);

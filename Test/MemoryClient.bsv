@@ -50,6 +50,8 @@ import BlueCheck    :: *;
 import Debug        :: *;
 import SourceSink   :: *;
 import BlueAXI4     :: *;
+import Bag          :: *;
+import VnD          :: *;
 
 // This module has been developed for the purpose of testing the
 // (shared) memory sub-system.  It aims to provide a neat Bluespec
@@ -167,15 +169,20 @@ endinstance
 // Memory client module =======================================================
 
 module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, 1, 0, 1, 1) axiSlave) (MemoryClient)
-  provisos (Add#(a__, addrWidth, 64), Add#(b__, idWidth, 8));
+  provisos (Add#(a__, addrWidth, 64), Add#(b__, idWidth, 32));
 
   // Response FIFO
-  FIFOF#(MemoryClientResponse) responseFIFO <- mkSizedFIFOF(4);
+  // FIFOF#(MemoryClientResponse) responseFIFO <- mkSizedFIFOF(4);
+  Bag#(4, Bit#(idWidth), MemoryClientResponse) responseBag <- mkSmallBag;
+  FIFOF#(Bit#(idWidth)) requestIDOrder <- mkSizedFIFOF(16);
+
+  let next_resp_id = requestIDOrder.first;
+  let can_get_resp = responseBag.isMember(next_resp_id).v;
 
   // FIFO storing details of outstanding loads/stores
   FIFOF#(OutstandingMemInstr) outstandingFIFO <- mkSizedFIFOF(4);
 
-  Reg#(Bit#(8)) idCount <- mkReg(0);
+  Reg#(Bit#(idWidth)) idCount <- mkReg(0);
 
   // Address mapping
   Reg#(AddrMap) addrMap <- mkRegU;
@@ -210,7 +217,7 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, 1, 0, 1, 1) axiSl
     readResponses.deq();
     outstandingFIFO.deq;
     debug2("memoryclient", $display("<time %0t MemoryClient> Read response consumed: ", $time, fshow(r)));
-    responseFIFO.enq(DataResponse(toData(r.ruser, r.rdata)));
+    responseBag.insert(r.rid, DataResponse(toData(r.ruser, r.rdata)));
   endrule
 
   // rule debug;
@@ -241,6 +248,10 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, 1, 0, 1, 1) axiSl
       addrReq.arcache = 4'b1011;
 
       axiSlave.ar.put(addrReq);
+      requestIDOrder.enq(addrReq.arid);
+      debug2("memoryclient", $display("<time %0t MemoryClient> Load issued: ", $time, fshow(addrReq)));
+      // debug2("memoryclient", $display("<time %0t MemoryClient> idWidth: ", $time, fshow(idWidth)));
+      
 
       outstandingFIFO.enq(OutstandingMemInstr{
         isLoad: True,
@@ -283,17 +294,19 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, 1, 0, 1, 1) axiSl
     storeGeneric(data, addr);
   endmethod
 
-  // Responses
-  method ActionValue#(MemoryClientResponse) getResponse;
-    responseFIFO.deq;
-    return responseFIFO.first;
+  method ActionValue#(MemoryClientResponse) getResponse if (can_get_resp);
+    let next_resp = responseBag.isMember(next_resp_id).d;
+    requestIDOrder.deq;
+    responseBag.remove(next_resp_id);
+    return next_resp;
   endmethod
 
-  method Bool canGetResponse = responseFIFO.notEmpty;
+  method Bool canGetResponse = can_get_resp;
 
   // Check if all outstanding operations have been consumed
   method Bool done = !outstandingFIFO.notEmpty &&
-                     !responseFIFO.notEmpty;
+                    //  !responseFIFO.notEmpty;
+                     responseBag.empty;
 
 //   // Set mapping from Addr values to physical address
   method Action setAddrMap(AddrMap map);
