@@ -69,14 +69,15 @@ module mkModelDRAMGeneric#
 
   // Slave interface
   FIFOF#(DRAMReq#(SizeOf#(MemTypesCHERI::ReqId), addrWidth)) preReqFifo <- mkSizedFIFOF(maxOutstandingReqs);
-  FIFOF#(DRAMRsp#(SizeOf#(MemTypesCHERI::ReqId))) respFifo   <- mkFIFOF;
+  // FIFOF#(DRAMRsp#(SizeOf#(MemTypesCHERI::ReqId))) respFifo   <- mkFIFOF;
+  FF#(DRAMRsp#(SizeOf#(MemTypesCHERI::ReqId)),1) respFifo   <- mkUGLFF1;
 
   // Internal request FIFO contains requests and a flag which denotes
   // the last read request in a burst read.
   FIFOF#(Tuple2#(DRAMReq#(SizeOf#(MemTypesCHERI::ReqId),addrWidth), Bool))  reqFifo <- mkFIFOF;
 
   // Latency-introducing response FIFO
-  FF#(Maybe#(DRAMRsp#(SizeOf#(MemTypesCHERI::ReqId))), `LATENCY) preRespFifo <- mkLFF;
+  FF#(Maybe#(DRAMRsp#(SizeOf#(MemTypesCHERI::ReqId))), `LATENCY) preRespFifo <- mkUGLFF;
 
   // Storage implemented as a register file
   //RegFile#(Bit#(addrWidth), Bit#(256)) ram <- mkRegFileFull;
@@ -137,8 +138,10 @@ module mkModelDRAMGeneric#
     debug2("dram", $display("<time %0t DRAM> unrollBurstReads ", $time, fshow(req)));
   endrule
 
+  PulseWire validRespAdded <- mkPulseWire;
+
   // Produce responses
-  rule produceResponses (!init);
+  rule produceResponses (!init && preRespFifo.notFull);
     // Extract request
     let req  = tpl_1(reqFifo.first);
     let last = tpl_2(reqFifo.first);
@@ -194,18 +197,25 @@ module mkModelDRAMGeneric#
     endcase
 
     // Respond
-    if (validResponse) respFifo.enq(resp);
-    // preRespFifo.enq(validResponse ? tagged Valid resp : tagged Invalid);
+    // if (validResponse) respFifo.enq(resp);
+    preRespFifo.enq(validResponse ? tagged Valid resp : tagged Invalid);
+    validRespAdded.send;
     debug2("dram", $display("<time %0t DRAM> produceFinalResponses validResponse: %d ", $time, validResponse, fshow(resp)));
   endrule
 
-  rule introduceLatency;
+  rule introduceLatency (!validRespAdded && preRespFifo.notFull);
     preRespFifo.enq(tagged Invalid);
+    debug2("dram", $display("<time %0t DRAM> introduced latency. preRespFifo.remaining: ", $time, preRespFifo.remaining));
   endrule
 
-  rule produceFinalResponses (!init);
+  rule produceFinalResponses (!init && preRespFifo.notEmpty && respFifo.notFull);
     let resp = preRespFifo.first;
-    if (resp matches tagged Valid .r) respFifo.enq(r);
+    if (resp matches tagged Valid .r) begin
+      respFifo.enq(r);
+      debug2("dram", $display("<time %0t DRAM> drained response: %d ", $time, fshow(resp)));
+    end else begin 
+      debug2("dram", $display("<time %0t DRAM> drained invalid", $time));
+    end
     preRespFifo.deq;
   endrule
 
@@ -214,7 +224,7 @@ module mkModelDRAMGeneric#
     init <= False;
   endrule
 
-  rule drainRespFifo;
+  rule drainRespFifo (respFifo.notEmpty);
     case (respFifo.first) matches
       tagged Write .w: shim.master.b.put(w);
       tagged Read .r: shim.master.r.put(r);
