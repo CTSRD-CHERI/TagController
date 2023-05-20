@@ -203,8 +203,10 @@ module mkTagController(TagControllerIfc);
   endrule
 
   // As well as buffering up requests to taglookup (which can vary in response time)
-  FF#(CheriTagRequest, InFlight)                   pendingLookupRequests <- mkFFBypass();
   // FF#(CheriTagRequest, InFlight)                   pendingLookupRequests <- mkLFF();
+  FF#(CheriTagRequest, InFlight)                   pendingLookupRequests <- mkFFBypass();
+  // FF#(CheriTagRequest, 1)                   pendingLookupRequests <- mkUGLFF1();
+
 
   // lookup response frame to access (for multi-flit transactions)
   Reg#(Frame) memoryResponseFrame <- mkReg(0);
@@ -439,12 +441,13 @@ module mkTagController(TagControllerIfc);
       // "taglookup cache response canget: ", fshow(tagLookup.cache.response.canGet()), " | ",
       // "pendingLookupRequests.first: ", fshow(pendingLookupRequests.first), " | ",
       "lookupRsp.remaining: ", fshow(lookupRsp.remaining), " | ",
-      "lookupRsp.first: ", fshow(lookupRsp.first), " | ",
-      "lookupRsp.notEmpty: ", fshow(lookupRsp.notEmpty), " | ",
-      "respID: ", fshow(respID), " | ",
-      "tagRsp: ", fshow(tagRsp), " | ",
-      "mRsps.full: ", fshow(mRsps.full), " | ",
-      "newResp: ", fshow(newResp), " | ",
+      // "lookupRsp.first: ", fshow(lookupRsp.first), " | ",
+      // "lookupRsp.notEmpty: ", fshow(lookupRsp.notEmpty), " | ",
+      // "respID: ", fshow(respID), " | ",
+      // "tagRsp: ", fshow(tagRsp), " | ",
+      // "mRsps.full: ", fshow(mRsps.full), " | ",
+      // "newResp: ", fshow(newResp), " | ",
+      "pendingLookupRequests.remaining: ", fshow(pendingLookupRequests.remaining), " | ",
       ""
     ));
   endrule

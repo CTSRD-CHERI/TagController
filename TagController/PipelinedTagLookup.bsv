@@ -58,7 +58,9 @@ typedef 4 CacheOpsInFlight;
 
 // Determines size of buffer before leafCache
 // Allows cached root only requests to not be held up by leaf misses
-typedef `TagOpsInFlight CentralBufferSize;
+// RUNTYPE: limit latency
+// typedef `TagOpsInFlight CentralBufferSize;
+typedef 4 CentralBufferSize;
 
 typedef enum {Read, Clear, Set, Fold} TagOpType deriving (Bits, FShow, Eq);
 
@@ -458,11 +460,11 @@ module mkPipelinedTagLookup #(
   // NOTE no new fold requests will be created until previous one is sent
   // due to stalls. So no need to worry about enq to full fold request
   // FF#(ProcessedRequest,1) foldRequests <- mkUGFFBypass1();
-  FF#(ProcessedRequest, 2) foldRequests <- mkUGLFF();
+  FF#(ProcessedRequest, 1) foldRequests <- mkUGLFF1();
 
   // Pending root requests
   // FF#(ProcessedRequest, 1) pendingRootReqs <- mkUGFFBypass1();
-  FF#(ProcessedRequest, 2) pendingRootReqs <- mkUGLFF();
+  FF#(ProcessedRequest, 1) pendingRootReqs <- mkUGLFF1();
 
   // Processes request (e.g. from tag controller) and put it into pendingRootReqs 
   function Action handle_new_root_request(CheriTagRequest req);
@@ -693,23 +695,15 @@ module mkPipelinedTagLookup #(
   // created but a leaf response id dequeued. Add an extra slot so consumeRootResponse
   // can be called even if InFlight/2 requests are in the fifo
   // FF#(LookupResponse, TAdd#(TDiv#(`TagOpsInFlight,2),1)) earlyRsps <- mkUGFFDebug("TagLookup_earlyRsps");
-  FF#(LookupResponse, `TagOpsInFlight) earlyRsps <- mkUGFFDebug("TagLookup_earlyRsps");
+  
+  // RUNTYPE: limit latency
+  // FF#(LookupResponse, `TagOpsInFlight) earlyRsps <- mkUGFFDebug("TagLookup_earlyRsps");
+  FF#(LookupResponse, 1) earlyRsps <- mkUGLFF1();
 
   // Pending leaf requests
   // TODO: what size should this be!
   // FF#(ProcessedRequest, CentralBufferSize) pendingLeafReqs <- mkUGFFBypass();
   FF#(ProcessedRequest, CentralBufferSize) pendingLeafReqs <- mkUGLFF();
-
-  rule consumeRootDebug;
-    debug2("taglookup", $display( 
-      "<time %0t TagLookup> ", $time,
-      "ROOT DEBUG:",
-      " rootCache.response.canGet: ", fshow(rootCache.response.canGet),
-      " earlyRsps.notFull: ", fshow(earlyRsps.notFull),
-      " rootTransNum-1: ", fshow(rootTransNum-1),
-      " inFlightRootReqs(rootTransNum-1): ", fshow(inFlightRootReqs.isMember(rootTransNum-1))
-    ));
-  endrule
 
 
   // Get response from rootCache and either respond early or send request to leafCache
@@ -989,7 +983,9 @@ module mkPipelinedTagLookup #(
   
   // Responses only produced after reading leaf values - have priority over early
   // responses
-  FF#(LookupResponse, 2) lateRsps <- mkUGFFDebug("TagLookup_earlyRsps");
+  // RUNTYPE: limit latency
+  // FF#(LookupResponse, 2) lateRsps <- mkUGFFDebug("TagLookup_earlyRsps");
+  FF#(LookupResponse, 1) lateRsps <- mkUGLFF1;
 
 
   // Get response from leafCache and either end request or enq to foldRequests
@@ -1213,6 +1209,19 @@ module mkPipelinedTagLookup #(
     init_done <= True;
   endrule
   `endif
+
+  rule debug;
+    debug2("taglookup", $display( 
+      "<time %0t TagLookup> ", $time,
+      "DEBUG:",
+      " rootCache.canPut: ", fshow(rootCache.canPut),
+      " pendingRootReqs.remaining: ", fshow(pendingRootReqs.remaining),
+      " earlyRsps.remaining: ", fshow(earlyRsps.remaining),
+      " pendingLeafReqs.remaining: ", fshow(pendingLeafReqs.remaining),
+      " lateRsps.remaining: ", fshow(lateRsps.remaining)
+    ));
+  endrule
+
 
   // Sub interfaces
   /////////////////////////////////////////////////////////////////////////////
