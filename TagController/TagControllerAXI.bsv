@@ -551,14 +551,15 @@ module mkWriteAndSetTagControllerAXI
   endrule
 
   Reg#(CheriPhyAddr) zeroAddr <- mkReg(unpack(pack(table_start_addr)));
-  FF#(Bool, 32) zeros_without_resp <- mkUGFFDebug("zeros_without_resp");
+  FF#(Bool, 256) zeros_without_resp <- mkUGFFDebug("zeros_without_resp");
 
-  rule doZeroing (state == Zeroing); 
+  rule doZeroing (state == Zeroing && zeros_without_resp.notFull); 
     TableLvl t = tableDesc[1];
     if (zeroAddr < unpack(pack(t.startAddr) + fromInteger(t.size))) begin
       // prepare memory request
       Bit#(CheriDataWidth) tags = 0;
       sendNewTags(zeroAddr,tags,"zeroing root");
+      debug2("AXItagwriter", $display("<time %0t AXItagwriter> Sent zeroing write req, no_resp.remaining: ", $time, fshow(zeros_without_resp.remaining)));
 
       zeros_without_resp.enq(?);
       
@@ -570,7 +571,7 @@ module mkWriteAndSetTagControllerAXI
     end
   endrule
 
-  rule drainZeroingResps (state == Zeroing); 
+  rule drainZeroingResps (state == Zeroing && zeros_without_resp.notEmpty); 
     let b <- get(shimMaster.slave.b);
     debug2("AXItagwriter", $display("<time %0t AXItagwriter> Received zeroing write resposne: ", $time, fshow(b)));
     zeros_without_resp.deq();

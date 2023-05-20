@@ -1658,7 +1658,14 @@ module mkCacheCore#(Integer cacheId,
   endrule
   
   // These conditions tell us whether a new request will certainly be caught if it is inserted.  
-  Bool putCondition = (!orderer.reqsFull && cacheState != Init && !writebacks.notEmpty && !invalidateWritebacks.notEmpty);
+  Bool putCondition = (
+    !memRsps.notEmpty &&  // Consume memory response rather than fresh request
+    !(retryReqs.nextData().v && readReqs.empty) && // There is a non-miss to retry
+    !orderer.reqsFull && 
+    cacheState != Init && 
+    !writebacks.notEmpty && 
+    !invalidateWritebacks.notEmpty
+  );
   
 
   (* no_implicit_conditions, fire_when_enabled *)
