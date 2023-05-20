@@ -54,7 +54,9 @@ import VnD::*;
 
 // RUNTYPE: out of order
 // MUST BE POWER OF 2
-typedef 4 CacheOpsInFlight;
+// TOFIX: Unknown bug when set this to 4
+// typedef 4 CacheOpsInFlight;
+typedef 2 CacheOpsInFlight;
 
 // Determines size of buffer before leafCache
 // Allows cached root only requests to not be held up by leaf misses
@@ -215,7 +217,7 @@ module mkPipelinedTagLookup #(
   // BACKUP
 
   // memory requests fifo
-  FF#(CheriMemRequest, 10)  backupMemoryReqs <-  mkUGFFDebug("TagLookup_backupMemoryReqs");
+  FF#(CheriMemRequest, 16)  backupMemoryReqs <-  mkUGFFDebug("TagLookup_backupMemoryReqs");
   // memory response fifo
   FF#(CheriMemResponse, 2) backupMemoryRsps <- mkUGFFDebug("TagLookup_backupMemoryRsps");
 
