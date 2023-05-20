@@ -139,8 +139,9 @@ class GZIPRequestGenerator(RequestGenerator):
     Extracts requests from gzipped trace file
     """
 
-    def __init__(self, input_file):
+    def __init__(self, input_file, maximum=10000):
         self.input_file = input_file
+        self.maximum = maximum
 
     def __repr__(self):
         return f"GZIPRequestGenerator({self.input_file})"
@@ -149,7 +150,7 @@ class GZIPRequestGenerator(RequestGenerator):
         yield MemoryOp(END_INIT)
 
         with gzip.open(self.input_file, "rb") as f:
-            for _ in range(10000):
+            for _ in range(self.maximum):
                 op = f.read(24)
                 (op_type, tags, size, vaddr, paddr) = struct.unpack(STRUCT_FORMAT, op)
                 # print(
