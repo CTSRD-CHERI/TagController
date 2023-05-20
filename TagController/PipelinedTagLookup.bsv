@@ -53,7 +53,8 @@ import VnD::*;
 // typedef 8 TagOpsInFlight;
 
 // RUNTYPE: out of order
-typedef 2 CacheOpsInFlight;
+// MUST BE POWER OF 2
+typedef 4 CacheOpsInFlight;
 
 // Determines size of buffer before leafCache
 // Allows cached root only requests to not be held up by leaf misses
