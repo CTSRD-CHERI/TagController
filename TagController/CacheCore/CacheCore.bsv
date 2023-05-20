@@ -1659,6 +1659,7 @@ module mkCacheCore#(Integer cacheId,
   
   // These conditions tell us whether a new request will certainly be caught if it is inserted.  
   Bool putCondition = (
+    // TO FIX: adding these two lines may have led to bugs... not sure why!?
     !memRsps.notEmpty &&  // Consume memory response rather than fresh request
     !(retryReqs.nextData().v && readReqs.empty) && // There is a non-miss to retry
     !orderer.reqsFull && 
