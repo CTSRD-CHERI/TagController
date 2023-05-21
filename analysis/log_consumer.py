@@ -275,3 +275,6 @@ class LogConsumer:
 
     def __str__(self):
         return self.__repr__()
+
+    def save_end_times(self, filename):
+        np.save(filename, np.array(self.end_times))

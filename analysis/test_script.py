@@ -56,13 +56,13 @@ import sys
 ##########################
 # GZIP
 ##########################
-# filename = "dramtraces/recordings/libquantum/trace_patched.gz"
-# s = tm.GZIPRequestGenerator(filename, maximum=10000)
+filename = "dramtraces/recordings/libquantum/trace_patched.gz"
+s = tm.GZIPRequestGenerator(filename, maximum=100000)
 
-# # # Run experiment
-# e = ex.Experiment("testing", s)
-# e.run()
-# exit(1)
+# # Run experiment
+e = ex.Experiment("testing", s)
+e.run()
+exit(1)
 
 # # Not full throughput!
 # # After root doesn't get, dealy related to fresh first issue
@@ -269,15 +269,15 @@ import sys
 #         if that register contains something, then set commit = False in finishReq
 #         also disallow putting
 
-s = tm.FullRequestSeq()
-sets=rs.SetAdder(s)
+# s = tm.FullRequestSeq()
+# sets=rs.SetAdder(s)
 
-for t in range(120):
-    sets.new_set(l_miss=True)
-    s.add_read(0)
+# for t in range(120):
+#     sets.new_set(l_miss=True)
+#     s.add_read(0)
 
-# s.add_read(0)
-print(s.__repr__())
-e = ex.Experiment("draining", s)
-e.run()
-exit(1)
+# # s.add_read(0)
+# print(s.__repr__())
+# e = ex.Experiment("draining", s)
+# e.run()
+# exit(1)
