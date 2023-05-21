@@ -283,7 +283,10 @@ module mkCacheCore#(Integer cacheId,
   Wire#(Bool)                                                   gotResp <- mkDWire(False);
   Wire#(Bool)                                                missedResp <- mkDWire(False);
   Wire#(Bool)                                                    putReq <- mkDWire(False);
-  FF#(ReqIdWithSC,TMul#(inFlight,2))                         writeResps <- mkUGFFDebug("CacheCoreRealAssociative_writeResps");
+  // RUNTYPE: more informative writeresps
+  // FF#(ReqIdWithSC,TMul#(inFlight,2))                         writeResps <- mkUGFFDebug("CacheCoreRealAssociative_writeResps");
+  Reg#(VnD#(CheriMemResponse))                       unUsedWriteResp[2] <- mkCReg(2, VnD{v: False, d: ?});
+
   ControlToken#(ways, keyBits, tagBits) null_ct = ?;
   null_ct.command = MemResponse;
   null_ct.req.operation = tagged CacheOp CacheOperation{inst: CacheNop, cache: whichCache, indexed: True};
@@ -762,7 +765,11 @@ module mkCacheCore#(Integer cacheId,
     if (req.operation matches tagged Read .rop) isRead = True;
     
     Bool serveThisReq = (orderer.slaveReqServeReady(reqId, truncateLSB(cts.req.addr.lineNumber))
+                        && !unUsedWriteResp[0].v // RUNTYPE: More informative writeresps (backpressure stalls cache)
                         && !tag.pendMem && commit.v); // If this is the next flit expected
+    // RUNTYPE: more informative writeresps
+    debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> unUsedWriteResp.v: ", $time, cacheId, fshow(unUsedWriteResp[0].v)));
+
     Bool exeThisReq = False;
     // If this is the last flit of transaction
     Bool thisReqLast = orderer.slaveRspLast(reqId, addr.bank);
@@ -1724,21 +1731,32 @@ module mkCacheCore#(Integer cacheId,
       if (!respsReady) begin
         debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> updateStateNoResponse called BUT respsReady=False", $time, cacheId));
         missedRespSig = False;
-      end else if (rt.resp.operation matches tagged Write &&& writeResps.notFull && whichCache!=ICache) begin
+      // RUNTYPE: more informative writeresps
+      // end else if (rt.resp.operation matches tagged Write &&& writeResps.notFull && whichCache!=ICache) begin
+      end else if (rt.resp.operation matches tagged Write &&& whichCache!=ICache) begin
         debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Missed Delivering write response, buffered it ", $time, cacheId, fshow(rt)));
-        ReqIdWithSC enqToWriteResps = ReqIdWithSC{inId: getRespId(rt.resp), isSC: False, scResult: False};
-        writeResps.enq(enqToWriteResps);
+        // ReqIdWithSC enqToWriteResps = ReqIdWithSC{inId: getRespId(rt.resp), isSC: False, scResult: False};
+        // writeResps.enq(enqToWriteResps);
+        if (unUsedWriteResp[0].v) panic(debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> unUsedWriteResp is full: ", $time, cacheId, fshow(unUsedWriteResp[0]))));
+        unUsedWriteResp[0] <= VnD{v: True, d: rt.resp};
         missedRespSig = False;
-      end else if (rt.resp.operation matches tagged SC .sc &&& writeResps.notFull && whichCache!=ICache) begin
-        debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Missed Delivering SC response, buffered it ", $time, cacheId, fshow(rt)));
-        ReqIdWithSC enqToWriteResps = ReqIdWithSC{inId: getRespId(rt.resp), isSC: True, scResult: sc};
-        writeResps.enq(enqToWriteResps);
-        missedRespSig = False;
+      // NO SUPPORT FOR STORE CONDITIONAL AT THE MOMENT!
+      // end else if (rt.resp.operation matches tagged SC .sc &&& writeResps.notFull && whichCache!=ICache) begin
+      //   debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Missed Delivering SC response, buffered it ", $time, cacheId, fshow(rt)));
+      //   ReqIdWithSC enqToWriteResps = ReqIdWithSC{inId: getRespId(rt.resp), isSC: True, scResult: sc};
+      //   writeResps.enq(enqToWriteResps);
+      //   missedRespSig = False;
       end
       missedResp <= missedRespSig;
     endaction
   endfunction
-  
+
+  PulseWire clearUnUsedWriteResp <- mkPulseWire;
+
+  rule invalidate_buffered_write_resp (clearUnUsedWriteResp);
+    unUsedWriteResp[1] <= VnD{v:False, d: ?};
+  endrule
+
   rule catchResponse(!gotResp);
     debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Catch response called ", $time, cacheId));
     updateStateNoResponse();
@@ -1757,15 +1775,20 @@ module mkCacheCore#(Integer cacheId,
   endmethod
   
   interface CheckedGet response;
-    method canGet = respsReady||writeResps.notEmpty;
+    // RUNTYPE: more informative writeresps
+    // method canGet = respsReady||writeResps.notEmpty;
+    method canGet = respsReady||unUsedWriteResp[0].v;
     method CheriMemResponse peek;
       ResponseToken rt = resps;
       CheriMemResponse ret = rt.resp;
-      if (writeResps.notEmpty) begin
-        ret = defaultValue;
-        ret.masterID = writeResps.first.inId.masterID;
-        ret.transactionID = writeResps.first.inId.transactionID;
-        ret.operation = writeResps.first.isSC ? tagged SC  writeResps.first.scResult : tagged Write;
+      // if (writeResps.notEmpty) begin
+      //   ret = defaultValue;
+      //   ret.masterID = writeResps.first.inId.masterID;
+      //   ret.transactionID = writeResps.first.inId.transactionID;
+      //   ret.operation = writeResps.first.isSC ? tagged SC  writeResps.first.scResult : tagged Write;
+      // end
+      if (unUsedWriteResp[0].v) begin 
+        ret = unUsedWriteResp[0].d;
       end
       return ret;
     endmethod
@@ -1774,13 +1797,18 @@ module mkCacheCore#(Integer cacheId,
       ResponseToken rt = resps;
       CheriMemResponse ret = rt.resp;
       debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> get called ", $time, cacheId));
-      if (writeResps.notEmpty) begin
-        ret = defaultValue;
-        ret.masterID = writeResps.first.inId.masterID;
-        ret.transactionID = writeResps.first.inId.transactionID;
-        ret.operation = writeResps.first.isSC ? tagged SC  writeResps.first.scResult : tagged Write;
-        writeResps.deq;
-        debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Delivering valid buffered write response, last: %d ", $time, cacheId, getLastField(ret), fshow(getRespId(ret))));
+      // if (writeResps.notEmpty) begin
+      //   ret = defaultValue;
+      //   ret.masterID = writeResps.first.inId.masterID;
+      //   ret.transactionID = writeResps.first.inId.transactionID;
+      //   ret.operation = writeResps.first.isSC ? tagged SC  writeResps.first.scResult : tagged Write;
+      //   writeResps.deq;
+      //   debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Delivering valid buffered write response, last: %d ", $time, cacheId, getLastField(ret), fshow(getRespId(ret))));
+      //   updateStateNoResponse();
+      if (unUsedWriteResp[0].v) begin 
+        ret = unUsedWriteResp[0].d;
+        debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Delivering valid buffered write response: %d ", $time, cacheId, fshow(ret)));
+        clearUnUsedWriteResp.send();
         updateStateNoResponse();
       end else begin // respsReady in this case.
         debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Delivering valid response ", $time, cacheId, fshow(ret)));
