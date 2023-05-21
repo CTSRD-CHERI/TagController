@@ -57,12 +57,16 @@ import sys
 # GZIP
 ##########################
 # filename = "dramtraces/recordings/libquantum/trace_patched.gz"
-# s = tm.GZIPRequestGenerator(filename)
+# s = tm.GZIPRequestGenerator(filename, maximum=10000)
 
 # # # Run experiment
 # e = ex.Experiment("testing", s)
 # e.run()
 # exit(1)
+
+# # Not full throughput!
+# # After root doesn't get, dealy related to fresh first issue
+# # 1 succ but not get, 2 fresh but order dependency, 1 finally gotten, 2 finally gotten
 
 
 ##########################
@@ -81,7 +85,7 @@ import sys
 ##########################
 # Test each op type
 ##########################
-s = tm.FullRequestSeq()
+# s = tm.FullRequestSeq()
 # r_add = rs.ReadAdder(s)
 # s_add = rs.SetAdder(s)
 # c_add = rs.ClearAdder(s)
@@ -124,15 +128,15 @@ s = tm.FullRequestSeq()
 
 
 # r_add.read_both() # Try and ensure all the requests finish
-s.add_write(0, 0xdead, 1,init=True)
-s.add_write(16, 0xbeef, 1,init=True)
-s.add_read(0)
-print(s.__repr__())
-with open("dramtraces/fromFile_input.dat", "w") as f:
-    print(s, file=f)
-e = ex.Experiment("each_op", s)
-e.run()
-exit(1)
+# s.add_write(0, 0xdead, 1,init=True)
+# s.add_write(16, 0xbeef, 1,init=True)
+# s.add_read(0)
+# print(s.__repr__())
+# with open("dramtraces/fromFile_input.dat", "w") as f:
+#     print(s, file=f)
+# e = ex.Experiment("each_op", s)
+# e.run()
+# exit(1)
 
 
 ##########################
@@ -163,11 +167,117 @@ exit(1)
 # s = tm.FullRequestSeq()
 # r_add = rs.ReadAdder(s)
 
-# [r_add.read_both()  for _ in range(1000)]
-# r_add.read_both(r_miss=True)
-# [r_add.read_both()  for _ in range(20)]
+# # [r_add.read_both()  for _ in range(100)]
+# # r_add.read_both(r_miss=True)
+# # [r_add.read_both()  for _ in range(100)]
+
+# [r_add.read_root_only()  for _ in range(100)]
+# r_add.read_root_only(miss=True)
+# [r_add.read_root_only()  for _ in range(100)]
+
 
 # print(s.__repr__())
 # # e = ex.Experiment("miss_overtaking", s)
-# e = ex.Experiment("third_reads", s)
+# e = ex.Experiment("overtaking", s)
 # e.run()
+# exit(1)
+
+##########################
+# Fresh first issues
+# ##########################
+# s = tm.FullRequestSeq()
+
+## Issues to fix
+# High latencies
+# - stuck in central buffer (just make smaller, so a bit more OOO)
+# - stuck in early responses (make smaller so can exert backpressure?)
+
+
+# Read root cache only
+# s.add_read(0)
+# [s.add_read(0x800000) for _ in range(100)]
+# # Suddenly miss leaf cache!
+# s.add_write(0, 0, 1)
+# # Fill central buffer up
+# [s.add_read(0) for _ in range(100)]
+# # empty central buffer
+# # (NOTE: fills up early rsps)
+# [s.add_write(0x800000,0,0) for _ in range(100)]
+# # Now do leaf and root, but central buffer should be empty
+# [s.add_read(0) for _ in range(100)]
+# # Suddenly miss leaf cache again
+# s.add_write(0x800000, 0, 1)
+# # Should overtake the leaf (rather than fill central buffer)
+# [s.add_read(0) for _ in range(100)]
+
+# [s.add_read(0x8000000) for _ in range(100)]
+
+
+# s.add_write(0, 0, 1)
+# [s.add_read(0) for _ in range(10000)]
+# s.add_read(0x80000)
+# [s.add_read(0) for _ in range(100)]
+
+# s.add_read(0)
+
+
+# s.add_write(0, 0, 1,init=True)
+# [s.add_read(0) for _ in range(100)]
+# [s.add_read(0x80000) for _ in range(100)]
+# [s.add_read(0) for _ in range(100)]
+# print(s.__repr__())
+
+# # e = ex.Experiment("miss_overtaking", s)
+# e = ex.Experiment("throughput", s)
+# e.run()
+# exit(1)
+
+
+#########################
+# Trigger writeback
+#########################
+
+# s = tm.FullRequestSeq()
+# a=rs.ReadAdder(s)
+
+# for t in range(1025):
+#     s.add_write(128*128*16*4*t,0,1)
+#     # s.add_read(128*128*16*4*t)
+
+# # causes evict
+# s.add_write(127*128*16*1025, 0, 0)
+# # can we overtake it?
+# s.add_read(127*128*16*4)
+
+
+# # s.add_read(0)
+# e = ex.Experiment("writeback", s)
+# e.run()
+# exit(1)
+
+#########################
+# Dont drain resps issue
+#########################
+
+# ISSUE:
+# - write responses not buffered in full
+# - so if don't extract immediately then cant detect 0->1 transition!
+# - [ ] IDEA 1: dont' commit write unless will extract (added complexity!!)
+# - [x] IDEA 2: make write resp buffer hold more info!!!
+# - Need to worry about getting too full?
+# - IDEA: make writeresps a simple register 
+#         if that register contains something, then set commit = False in finishReq
+#         also disallow putting
+
+s = tm.FullRequestSeq()
+sets=rs.SetAdder(s)
+
+for t in range(120):
+    sets.new_set(l_miss=True)
+    s.add_read(0)
+
+# s.add_read(0)
+print(s.__repr__())
+e = ex.Experiment("draining", s)
+e.run()
+exit(1)

@@ -55,8 +55,8 @@ import VnD::*;
 // RUNTYPE: out of order
 // MUST BE POWER OF 2
 // TOFIX: Unknown bug when set this to 4
-// typedef 4 CacheOpsInFlight;
-typedef 2 CacheOpsInFlight;
+typedef 4 CacheOpsInFlight;
+// typedef 2 CacheOpsInFlight;
 
 // Determines size of buffer before leafCache
 // Allows cached root only requests to not be held up by leaf misses
@@ -468,6 +468,17 @@ module mkPipelinedTagLookup #(
   // FF#(ProcessedRequest, 1) pendingRootReqs <- mkUGFFBypass1();
   FF#(ProcessedRequest, 1) pendingRootReqs <- mkUGLFF1();
 
+  // Tag lookup responses sent before accessing leaves
+  // The leaf responses are older so have priority
+  // There could be as many as InFlight/2 cycles where an early response is
+  // created but a leaf response id dequeued. Add an extra slot so consumeRootResponse
+  // can be called even if InFlight/2 requests are in the fifo
+  // FF#(LookupResponse, TAdd#(TDiv#(`TagOpsInFlight,2),1)) earlyRsps <- mkUGFFDebug("TagLookup_earlyRsps");
+  
+  // RUNTYPE: limit latency
+  // FF#(LookupResponse, `TagOpsInFlight) earlyRsps <- mkUGFFDebug("TagLookup_earlyRsps");
+  FF#(LookupResponse, 1) earlyRsps <- mkUGLFF1();
+
   // Processes request (e.g. from tag controller) and put it into pendingRootReqs 
   function Action handle_new_root_request(CheriTagRequest req);
     return (
@@ -595,7 +606,8 @@ module mkPipelinedTagLookup #(
     ) &&
     // Don't let there be two requests in flight with same ID!
     !inFlightRootReqs.isMember(rootTransNum).v &&
-    !inFlightRootReqs.full
+    !inFlightRootReqs.full &&
+    (earlyRsps.notFull || inFlightRootReqs.empty) // Don't issue fresh requst if will need to retry current one next cycle anyway
   );
     // RUNTYPE: LOCK ON FOLD 
     // let doFold = foldRequests.notEmpty;
@@ -690,17 +702,6 @@ module mkPipelinedTagLookup #(
     RequestInfo        // Data type
   ) inFlightLeafReqs <- mkSmallBag;
  
-
-  // Tag lookup responses sent before accessing leaves
-  // The leaf responses are older so have priority
-  // There could be as many as InFlight/2 cycles where an early response is
-  // created but a leaf response id dequeued. Add an extra slot so consumeRootResponse
-  // can be called even if InFlight/2 requests are in the fifo
-  // FF#(LookupResponse, TAdd#(TDiv#(`TagOpsInFlight,2),1)) earlyRsps <- mkUGFFDebug("TagLookup_earlyRsps");
-  
-  // RUNTYPE: limit latency
-  // FF#(LookupResponse, `TagOpsInFlight) earlyRsps <- mkUGFFDebug("TagLookup_earlyRsps");
-  FF#(LookupResponse, 1) earlyRsps <- mkUGLFF1();
 
   // Pending leaf requests
   // TODO: what size should this be!
