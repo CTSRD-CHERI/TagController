@@ -60,7 +60,11 @@ filename = "dramtraces/recordings/libquantum/trace_patched.gz"
 s = tm.GZIPRequestGenerator(filename, maximum=100000)
 
 # # Run experiment
-e = ex.Experiment("testing", s)
+e = ex.Experiment("final_gzip", s, "final")
+e.run()
+
+s = tm.GZIPRequestGenerator(filename, maximum=100000)
+e = ex.Experiment("starting_gzip", s, "starting")
 e.run()
 exit(1)
 

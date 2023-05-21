@@ -8,16 +8,18 @@ FLUSH_PERIOD = 1000
 
 
 class Experiment:
-    def __init__(self, name, request_generator):
+    def __init__(self, name, request_generator, design="default"):
         self.name = name
         self.request_generator = request_generator
+        self.design = design
 
     async def _run_fromfile(self, log_file):
         print("Starting process")
         fromfile_process = await asyncio.create_subprocess_exec(
             "python",
             "analysis/run_and_consume.py",
-            r"{self.name}",
+            f"{self.name}",
+            f"{self.design}",
             stdout=log_file,
         )
 
