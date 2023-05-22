@@ -279,6 +279,9 @@ module mkTagController(TagControllerIfc);
   endrule
 
   // RUNTYPE: Buffer pending tag requests
+  // TODO: ensure that tag reqeusts that had same memory request ID do not overtake one another
+  //       MAY CAUSE BIG ISSUES IF NOT FIXED!! (AXI spec allows multiple reqs in flight with same ID)
+  //       Unlikely that this will happen... but would be best if bug not present!
   rule putTagLookupRequest (tagLookup.cache.request.canPut() && pendingLookupRequests.notEmpty());
     let tagReq = pendingLookupRequests.first();
     pendingLookupRequests.deq();
