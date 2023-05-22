@@ -594,7 +594,10 @@ module mkPipelinedTagLookup #(
     );
   endfunction
 
-  // 
+  // TODO: ensure cancelled folds also respond!
+  //       Alternatively, remove need for write responses
+  //       (better to use memReqIDs and track in-use IDs within this module)
+  //       THIS ISSUE COULD CAUSE BIG PROBLEMS! (fix before submit)
   rule issueRootRequest (
     rootCache.canPut && 
     (
