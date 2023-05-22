@@ -60,29 +60,29 @@ def plot_all(
 ############
 # Writes
 ############
-## TODO
+## DONE
 # plot_all("write_every_leaf")
 # plot_all("write_every_root")
 # plot_all("write_every_leaf_line", limits=1000)
 # plot_all("write_every_root_line", limits=1000)
 
-## TODO
-# plot_all("write_every_leaf_leaf_also")
-# plot_all("write_every_root_leaf_also")
-# plot_all("write_every_leaf_line_leaf_also", limits=1000)
-# plot_all("write_every_root_line_leaf_also", limits=1000)
+## DONE
+# plot_all("write_every_leaf_and_leaf")
+# plot_all("write_every_root_and_leaf")
+# plot_all("write_every_leaf_line_and_leaf", limits=1000)
+# plot_all("write_every_root_line_and_leaf", limits=1000)
 
 ############
 # Skipping leaf cache
 ############
-## TODO 
+## DONE 
 # plot_all("overtaking_leaf_single", limits=10000, simulation_names=["not_ooo", "final"])
 # plot_all("overtaking_leaf_ten", limits=10000, simulation_names=["not_ooo", "final"])
 
 ############
 # Non blocking miss
 ############
-## TODO 
+## DONE 
 # plot_all("non_blocking_single", limits=1000, simulation_names=["not_ooo", "final"])
 # plot_all("non_blocking_four", limits=1000, simulation_names=["not_ooo", "final"])
 
