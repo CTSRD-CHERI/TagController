@@ -85,6 +85,12 @@ typedef struct {
 // mkTagLookup module definition
 ///////////////////////////////////////////////////////////////////////////////
 
+// TODO: ensure cancelled requests also respond!
+//       Alternatively, remove need for write responses
+//       (better to use memReqIDs and track in-use IDs within this module)
+//       THIS ISSUE COULD CAUSE BIG PROBLEMS! (fix before submit)
+
+
 // Assumes that ALL addresses are covered
 module mkPipelinedTagLookup #(
   // master ID to be used for memory requests
@@ -531,6 +537,8 @@ module mkPipelinedTagLookup #(
 
             // Ignore request if not writing any tags
             // TODO: move this out of pipelinedtaglookup - waste of time!
+            // TODO: eeek need to return response for this ID. 
+            //       (until get rid of write responses!!)
             if (all(isFalse,capEnable)) begin
               doTagRequest = False;
             end else if (all(isFalse,andTags)) begin
@@ -594,10 +602,6 @@ module mkPipelinedTagLookup #(
     );
   endfunction
 
-  // TODO: ensure cancelled folds also respond!
-  //       Alternatively, remove need for write responses
-  //       (better to use memReqIDs and track in-use IDs within this module)
-  //       THIS ISSUE COULD CAUSE BIG PROBLEMS! (fix before submit)
   rule issueRootRequest (
     rootCache.canPut && 
     (
@@ -1110,7 +1114,17 @@ module mkPipelinedTagLookup #(
           );
 
           request_info.opType = Fold;
-
+          // Since Fold requests have priority, it is safe for a new
+          // tag request to have the same request_id at this point.
+          lateRsps.enq(
+            LookupResponse{
+              `ifdef TAGCONTROLLER_BENCHMARKING
+              bench_id: request_info.bench_id,
+              `endif
+              tags: unpack(0),
+              request_id: request_info.request_id
+            }
+          );
           foldRequests.enq(
             ProcessedRequest {
               req: rootRequest,
