@@ -66,25 +66,24 @@ def sequential_writes(l_stride=1, r_stride=0, n=10000, leaf_also=False):
 
     for i in range(n):
         if leaf_also:
-            s.add_write(a + i * stride, 1)
+            s.add_write(a + i * stride, 0, 1)
             s.add_write(a + i * stride, 0, 1, init=True)
         else:
-            s.add_write(a + i * stride, 0)
+            s.add_write(a + i * stride, 0, 0)
 
     return s
 
+# # DONE
+# run_set("write_every_leaf", lambda : sequential_writes(1,0, n=10000))
+# run_set("write_every_root", lambda : sequential_reads(0,1, n=10000))
+# run_set("write_every_leaf_line", lambda : sequential_writes(512,0, n=1000))
+# run_set("write_every_root_line", lambda : sequential_writes(0,512, n=1000))
 
 # # DONE
-# run_set("write_every_leaf", lambda : sequential_reads(1,0))
-# run_set("write_every_root", lambda : sequential_reads(0,1))
-# run_set("write_every_leaf_line", lambda : sequential_reads(512,0, n=1000))
-# run_set("write_every_root_line", lambda : sequential_reads(0,512, n=1000))
-
-# # DONE
-# run_set("write_every_leaf_and_leaf", lambda : sequential_reads(1,0, leaf_also=True))
-# run_set("write_every_root_and_leaf", lambda : sequential_reads(0,1, leaf_also=True))
-# run_set("write_every_leaf_line_and_leaf", lambda : sequential_reads(512,0, n=1000, leaf_also=True))
-# run_set("write_every_root_line_and_leaf", lambda : sequential_reads(0,512, n=1000, leaf_also=True))
+# run_set("write_every_leaf_and_leaf", lambda : sequential_writes(1,0, leaf_also=True, n=10000))
+# run_set("write_every_root_and_leaf", lambda : sequential_writes(0,1, leaf_also=True, n=10000))
+# run_set("write_every_leaf_line_and_leaf", lambda : sequential_writes(512,0, n=1000, leaf_also=True))
+# run_set("write_every_root_line_and_leaf", lambda : sequential_writes(0,512, n=1000, leaf_also=True))
 
 #####################
 # Skipping leaf cache

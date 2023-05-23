@@ -60,13 +60,13 @@ def plot_all(
 ############
 # Writes
 ############
-## DONE
+# # DONE
 # plot_all("write_every_leaf")
 # plot_all("write_every_root")
 # plot_all("write_every_leaf_line", limits=1000)
 # plot_all("write_every_root_line", limits=1000)
 
-## DONE
+# # DONE
 # plot_all("write_every_leaf_and_leaf")
 # plot_all("write_every_root_and_leaf")
 # plot_all("write_every_leaf_line_and_leaf", limits=1000)
