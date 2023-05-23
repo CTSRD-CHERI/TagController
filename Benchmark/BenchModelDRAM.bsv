@@ -52,7 +52,7 @@ import BenchRegFileHash  :: *;
 import BlueAXI4     :: *;
 import AXI_Helpers  :: *;
 
-`define LATENCY 2
+`define LATENCY 32
 
 module mkModelDRAMGeneric#
          ( Integer maxOutstandingReqs         // Max outstanding requests

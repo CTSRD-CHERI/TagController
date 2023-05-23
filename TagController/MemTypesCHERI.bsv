@@ -388,7 +388,9 @@ Bit#(3) indicesMinus6 = fromInteger(valueOf(Indices) - 6);
 // RUNTYPE: in flight operations
 // NOTE: must be a power of 2
 // typedef 4 InFlight;
-typedef 16 InFlight;
+// typedef 16 InFlight;
+// For sims with latency:
+typedef 64 InFlight;
 typedef Bit#(TLog#(InFlight)) TagRequestID;
 
 //////////////////////////////////

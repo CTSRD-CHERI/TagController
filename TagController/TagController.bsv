@@ -212,7 +212,11 @@ module mkTagController(TagControllerIfc);
   Reg#(Frame) memoryResponseFrame <- mkReg(0);
   Reg#(CheriTagWrite) tagWrite <- mkReg(unpack(0));
   // memory requests fifo
-  FF#(CheriMemRequest, TMul#(MaxBurstLength, 2)) mReqs <- mkUGFF();
+  
+  // For sims with latency
+  // FF#(CheriMemRequest, TMul#(MaxBurstLength, 2)) mReqs <- mkUGFF();
+  FF#(CheriMemRequest, TMul#(MaxBurstLength, InFlight)) mReqs <- mkUGFF();
+
   FF#(Bit#(0),InFlight) mReqBurst <- mkUGFF;
   // memory responses fifo
   // RUNTYPE: out of order

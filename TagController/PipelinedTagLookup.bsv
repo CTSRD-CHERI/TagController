@@ -49,6 +49,8 @@ import VnD::*;
 
 // How many tag ops per cache can be in flight
 // RUNTYPE: limit concurrency
+// `define TagOpsInFlight 16
+// For Sims with latency:
 `define TagOpsInFlight 16
 // typedef 8 TagOpsInFlight;
 
