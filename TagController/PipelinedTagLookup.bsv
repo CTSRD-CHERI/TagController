@@ -1129,17 +1129,18 @@ module mkPipelinedTagLookup #(
           );
 
           request_info.opType = Fold;
-          // Since Fold requests have priority, it is safe for a new
-          // tag request to have the same request_id at this point.
-          lateRsps.enq(
-            LookupResponse{
-              `ifdef TAGCONTROLLER_BENCHMARKING
-              bench_id: request_info.bench_id,
-              `endif
-              tags: unpack(0),
-              request_id: request_info.request_id
-            }
-          );
+          // RUNTUPE: no lookup write responses
+          // // Since Fold requests have priority, it is safe for a new
+          // // tag request to have the same request_id at this point.
+          // lateRsps.enq(
+          //   LookupResponse{
+          //     `ifdef TAGCONTROLLER_BENCHMARKING
+          //     bench_id: request_info.bench_id,
+          //     `endif
+          //     tags: unpack(0),
+          //     request_id: request_info.request_id
+          //   }
+          // );
           foldRequests.enq(
             ProcessedRequest {
               req: rootRequest,
