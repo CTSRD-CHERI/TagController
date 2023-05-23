@@ -117,7 +117,8 @@ typedef Bit#(8) ReqIdCount;
 typedef struct {
   ReqId id;
   Bool tagOnlyRead;
-  Bool useResponse;
+  // RUNTYPE: No lookup write responses
+  // Bool useResponse;
 } LookupReqInfo deriving(Bits, Eq, FShow);
 
 typedef struct {
@@ -176,31 +177,34 @@ module mkTagController(TagControllerIfc);
 
   // TagLookup cannot handle multiple requests with same id so limit depth to 1
   // This means a request can only be over taken by a maximum of InFlight others
-  // IDBag#(InFlight, TagRequestID, LookupReqInfo) pendingLookups <- mkSmallIDBag;
-  Reg#(Vector#(InFlight, VnD#(LookupReqInfo))) pendingLookups <- mkReg(replicate(VnD{v: False, d: ?}));
+  // RUNTYPE: no lookup write responses
+  Bag#(InFlight, TagRequestID, LookupReqInfo) pendingLookups <- mkSmallBag;
+  // Reg#(Vector#(InFlight, VnD#(LookupReqInfo))) pendingLookups <- mkReg(replicate(VnD{v: False, d: ?}));
 
   Reg#(TagRequestID) currentRequestID <- mkConfigReg(0);
-  Wire#(VnD#(LookupReqInfo)) newTagRequest <- mkDWire(VnD{v: False, d: ?});
-  Wire#(VnD#(TagRequestID)) newTagResponse <- mkDWire(VnD{v: False, d: ?});
+  
+  // RUNTYPE: no lookup write responses
+  // Wire#(VnD#(LookupReqInfo)) newTagRequest <- mkDWire(VnD{v: False, d: ?});
+  // Wire#(VnD#(TagRequestID)) newTagResponse <- mkDWire(VnD{v: False, d: ?});
 
-  function Bool valid(VnD#(LookupReqInfo) val) = val.v;
+  // function Bool valid(VnD#(LookupReqInfo) val) = val.v;
 
-  rule updatePendingLookups;
-    let newPendingLookups = pendingLookups;
-    if (newTagRequest.v) begin 
-      newPendingLookups[currentRequestID] = newTagRequest;
-    end
-    if (newTagResponse.v) begin 
-      newPendingLookups[newTagResponse.d].v = False;
-    end
-    pendingLookups <= newPendingLookups;
+  // rule updatePendingLookups;
+  //   let newPendingLookups = pendingLookups;
+  //   if (newTagRequest.v) begin 
+  //     newPendingLookups[currentRequestID] = newTagRequest;
+  //   end
+  //   if (newTagResponse.v) begin 
+  //     newPendingLookups[newTagResponse.d].v = False;
+  //   end
+  //   pendingLookups <= newPendingLookups;
 
-    TagRequestID nextId = 0;
-    for (Integer i = 0; i < valueOf(InFlight); i=i+1) begin
-      if (!newPendingLookups[i].v) nextId = fromInteger(i);
-    end
-    currentRequestID <= nextId;
-  endrule
+  //   TagRequestID nextId = 0;
+  //   for (Integer i = 0; i < valueOf(InFlight); i=i+1) begin
+  //     if (!newPendingLookups[i].v) nextId = fromInteger(i);
+  //   end
+  //   currentRequestID <= nextId;
+  // endrule
 
   // As well as buffering up requests to taglookup (which can vary in response time)
   // FF#(CheriTagRequest, InFlight)                   pendingLookupRequests <- mkLFF();
@@ -239,8 +243,10 @@ module mkTagController(TagControllerIfc);
     mReqs.notFull() && mReqBurst.notFull() && 
     // Can stash info about which tags we want
     !addrFrame.full() &&
+    // RUNTYPE: No lookup write responses
     // We are not at risk of having two in flight read requests with the same request ID
-    !all(valid, pendingLookups);
+    // !all(valid, pendingLookups);
+    !pendingLookups.isMember(currentRequestID).v;
 
   // module rules
   /////////////////////////////////////////////////////////////////////////////
@@ -252,17 +258,22 @@ module mkTagController(TagControllerIfc);
     // Ignore validity - can only get responses for IDs that are inflight
     // LookupReqInfo lookup = pendingLookups.isMember(tags.request_id).d;
 
+    // RUNTYPE: No lookup write responses
     // Validity encodes whether read or write response
-    LookupReqInfo matching_lookup = pendingLookups[tags.request_id].d;
+    // LookupReqInfo matching_lookup = pendingLookups[tags.request_id].d;
+    LookupReqInfo matching_lookup = pendingLookups.isMember(tags.request_id).d;
 
-    if (matching_lookup.useResponse) begin
+    // if (matching_lookup.useResponse) begin
     
       debug2("tagcontroller", $display(
         "<time %0t TagController> Completed lookup response: ", $time, 
         fshow(matching_lookup.id), " - ", 
+
         // RUNTYPE: out of order
+        // RUNTYPE: no lookup write responses
         // fshow(LookupRspInfo{rsp: tags, tagOnlyRead: matching_lookup.tagOnlyRead})
-        fshow(LookupRspInfo{id: matching_lookup.id, rsp: tags, tagOnlyRead: matching_lookup.tagOnlyRead})
+        // fshow(LookupRspInfo{id: matching_lookup.id, rsp: tags, tagOnlyRead: matching_lookup.tagOnlyRead})
+        fshow(LookupRspInfo{rsp: tags, tagOnlyRead: matching_lookup.tagOnlyRead})
       ));
     
       `ifdef TAGCONTROLLER_BENCHMARKING
@@ -276,10 +287,14 @@ module mkTagController(TagControllerIfc);
       // lookupRsp.enq(matching_lookup.id, LookupRspInfo{rsp: tags, tagOnlyRead: matching_lookup.tagOnlyRead});
       lookupRsp.enq(LookupRspInfo{id: matching_lookup.id, rsp: tags, tagOnlyRead: matching_lookup.tagOnlyRead});
       // pendingLookups.remove(tags.request_id);
-    end else begin
-      debug2("tagcontroller", $display("<time %0t TagController> Ignored lookup response with id: ", $time, fshow(tags.request_id))); 
-    end
-    newTagResponse <= VnD{v: True, d: tags.request_id};
+
+    // RUNTYPE: no lookup write responsese
+    // end else begin
+    //   debug2("tagcontroller", $display("<time %0t TagController> Ignored lookup response with id: ", $time, fshow(tags.request_id))); 
+    // end
+    // newTagResponse <= VnD{v: True, d: tags.request_id};
+    pendingLookups.remove(tags.request_id);
+
   endrule
 
   // RUNTYPE: Buffer pending tag requests
@@ -546,8 +561,10 @@ module mkTagController(TagControllerIfc);
               debug2("tagcontroller", $display("<time %0t TagController> Space left in pendingLookupRequests: ", $time, " ", fshow(pendingLookupRequests.remaining())));    
               pendingLookupRequests.enq(tagReq);
 
-              debug2("tagcontroller", $display("<time %0t TagController> Enqueueing lookup request info into pendingLookups: ", $time, " ", fshow(LookupReqInfo{id: id, tagOnlyRead: tagOnlyRead, useResponse: True})));    
-              newTagRequest <= VnD{v: True, d: LookupReqInfo{id: ?, tagOnlyRead: ?, useResponse: False}};
+              // RUNTYPE: no lookup write responses
+              // debug2("tagcontroller", $display("<time %0t TagController> Enqueueing lookup request info into pendingLookups: ", $time, " ", fshow(LookupReqInfo{id: id, tagOnlyRead: tagOnlyRead, useResponse: True})));    
+              // newTagRequest <= VnD{v: True, d: LookupReqInfo{id: ?, tagOnlyRead: ?, useResponse: False}};
+              currentRequestID <= currentRequestID + 1;
 
               newTagWrite = unpack(0);
             end
@@ -560,9 +577,12 @@ module mkTagController(TagControllerIfc);
           debug2("tagcontroller", $display("<time %0t TagController> Space left in pendingLookupRequests: ", $time, " ", fshow(pendingLookupRequests.remaining())));    
           pendingLookupRequests.enq(tagReq);
 
-          debug2("tagcontroller", $display("<time %0t TagController> Enqueueing lookup request info into pendingLookups: ", $time, " ", fshow(LookupReqInfo{id: id, tagOnlyRead: tagOnlyRead, useResponse: True})));    
-          // pendingLookups.insert(currentRequestID, LookupReqInfo{id: id, tagOnlyRead: tagOnlyRead});
-          newTagRequest <= VnD{v: True, d: LookupReqInfo{id: id, tagOnlyRead: tagOnlyRead, useResponse: True}};
+          //RUNTYPE: no lookup write response
+          // debug2("tagcontroller", $display("<time %0t TagController> Enqueueing lookup request info into pendingLookups: ", $time, " ", fshow(LookupReqInfo{id: id, tagOnlyRead: tagOnlyRead, useResponse: True})));    
+          // newTagRequest <= VnD{v: True, d: LookupReqInfo{id: id, tagOnlyRead: tagOnlyRead, useResponse: True}};
+          debug2("tagcontroller", $display("<time %0t TagController> Enqueueing lookup request info into pendingLookups: ", $time, " ", fshow(LookupReqInfo{id: id, tagOnlyRead: tagOnlyRead})));    
+          pendingLookups.insert(currentRequestID, LookupReqInfo{id: id, tagOnlyRead: tagOnlyRead});
+          currentRequestID <= currentRequestID + 1;
         end
       endmethod
     endinterface

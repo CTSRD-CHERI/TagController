@@ -417,6 +417,7 @@ module mkPipelinedTagLookup #(
   PulseWire leaf_ended <- mkPulseWire();
   PulseWire resp_taken <- mkPulseWire();
   PulseWire new_request <- mkPulseWire();
+  PulseWire fold_cancelled <- mkPulseWire();
 
   rule update_ops_in_flight;
     let finished = 0;
@@ -424,6 +425,7 @@ module mkPipelinedTagLookup #(
     if(leaf_ended) finished = finished + 1;
     if(resp_taken) finished = finished + 1;
     if(new_request) finished = finished - 1;
+    if(fold_cancelled) finished = finished + 1;
     
     debug2("taglookup", $display(
       "<time %0t TagLookup>", $time,
@@ -432,7 +434,8 @@ module mkPipelinedTagLookup #(
       " root_ended: ", fshow(root_ended),
       " leaf_ended: ", fshow(leaf_ended),
       " new_request: ", fshow(new_request),
-      " resp_taken: ", fshow(resp_taken)
+      " resp_taken: ", fshow(resp_taken),
+      " fold_cancelled: ", fshow(fold_cancelled)
     ));
 
     current_ops_in_flight <= current_ops_in_flight - finished;
@@ -596,6 +599,7 @@ module mkPipelinedTagLookup #(
               info: request_info
             }
           );
+          new_request.send();
         end else debug2("tagLookup", $display(
           "<time %0t TagLookup> ", $time,
           "Ignored new request: ", fshow(req)
@@ -634,6 +638,7 @@ module mkPipelinedTagLookup #(
         doFold = True;
       end else begin 
         foldRequests.deq();
+        fold_cancelled.send();
       end
     end 
 
@@ -717,12 +722,14 @@ module mkPipelinedTagLookup #(
   // FF#(ProcessedRequest, CentralBufferSize) pendingLeafReqs <- mkUGFFBypass();
   FF#(ProcessedRequest, CentralBufferSize) pendingLeafReqs <- mkUGLFF();
 
+  // Set by initialise rules (see bottom of file)
+  Reg#(Bool) init_done <- mkReg(False);
 
   // Get response from rootCache and either respond early or send request to leafCache
   // Assumes that write responses contain the tag data BEFORE the write takes place
   // To ensure this, need to get response from rootCache every cycle it can
   // Therefore earlyRsps and pendingLeafReqs should never be full
-  rule consumeRootResponse (rootCache.response.canGet && earlyRsps.notFull && pendingLeafReqs.notFull);
+  rule consumeRootResponse (init_done && rootCache.response.canGet && earlyRsps.notFull && pendingLeafReqs.notFull);
     CheriMemResponse resp <- rootCache.response.get();
     CheriTransactionID transID = resp.transactionID;
 
@@ -888,16 +895,18 @@ module mkPipelinedTagLookup #(
             request_info.capNumber >> tableDesc[rootLvl].shiftAmnt,
             request_info.request_id
           );
-          // root_ended.send();
-          earlyRsps.enq(
-            LookupResponse{
-              `ifdef TAGCONTROLLER_BENCHMARKING
-              bench_id: request_info.bench_id,
-              `endif
-              tags: unpack(0),
-              request_id: request_info.request_id
-            }
-          );
+
+          // RUNTYPE: no lookup write response
+          root_ended.send();
+          // earlyRsps.enq(
+          //   LookupResponse{
+          //     `ifdef TAGCONTROLLER_BENCHMARKING
+          //     bench_id: request_info.bench_id,
+          //     `endif
+          //     tags: unpack(0),
+          //     request_id: request_info.request_id
+          //   }
+          // );
         end else begin 
           debug2("taglookup",
             $display(
@@ -930,16 +939,18 @@ module mkPipelinedTagLookup #(
       Fold: begin 
         // Do nothing!
         doTagRequest = False;
-        // root_ended.send();
-        earlyRsps.enq(
-          LookupResponse{
-            `ifdef TAGCONTROLLER_BENCHMARKING
-            bench_id: request_info.bench_id,
-            `endif
-            tags: unpack(0),
-            request_id: request_info.request_id
-          }
-        );
+
+        // RUNTYPE: No lookup write response
+        root_ended.send();
+        // earlyRsps.enq(
+        //   LookupResponse{
+        //     `ifdef TAGCONTROLLER_BENCHMARKING
+        //     bench_id: request_info.bench_id,
+        //     `endif
+        //     tags: unpack(0),
+        //     request_id: request_info.request_id
+        //   }
+        // );
       end 
     endcase
 
@@ -1068,16 +1079,18 @@ module mkPipelinedTagLookup #(
           "end LEAF | write"
         ));
         `endif
-        // leaf_ended.send();
-        lateRsps.enq(
-          LookupResponse{
-            `ifdef TAGCONTROLLER_BENCHMARKING
-            bench_id: request_info.bench_id,
-            `endif
-            tags: unpack(0),
-            request_id: request_info.request_id
-          }
-        );
+
+        // RUNTYPE: no lookup write response
+        leaf_ended.send();
+        // lateRsps.enq(
+        //   LookupResponse{
+        //     `ifdef TAGCONTROLLER_BENCHMARKING
+        //     bench_id: request_info.bench_id,
+        //     `endif
+        //     tags: unpack(0),
+        //     request_id: request_info.request_id
+        //   }
+        // );
       end 
       Clear: begin 
 
@@ -1148,16 +1161,17 @@ module mkPipelinedTagLookup #(
             request_info.request_id
           );
 
-          // leaf_ended.send();
-          lateRsps.enq(
-            LookupResponse{
-              `ifdef TAGCONTROLLER_BENCHMARKING
-              bench_id: request_info.bench_id,
-              `endif
-              tags: unpack(0),
-              request_id: request_info.request_id
-            }
-          );
+          // RUNTYPE: no lookup write response
+          leaf_ended.send();
+          // lateRsps.enq(
+          //   LookupResponse{
+          //     `ifdef TAGCONTROLLER_BENCHMARKING
+          //     bench_id: request_info.bench_id,
+          //     `endif
+          //     tags: unpack(0),
+          //     request_id: request_info.request_id
+          //   }
+          // );
         end
       end 
       // Never send Fold requests to leaf
@@ -1173,7 +1187,6 @@ module mkPipelinedTagLookup #(
 `endif 
 
   // state register
-  Reg#(Bool) init_done <- mkReg(False);
   Reg#(Bool) zeros_sent <- mkReg(False);
   // address to zero when in Init state
   Reg#(CheriPhyAddr) zeroAddr <- mkReg(tagTabStrtAddr);
@@ -1266,7 +1279,6 @@ module mkPipelinedTagLookup #(
             "Processing new tag lookup request: ", fshow(req)
         ));
         handle_new_root_request(req);
-        new_request.send();
       endmethod
     endinterface
     interface CheckedGet response;
