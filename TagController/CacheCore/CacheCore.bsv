@@ -283,7 +283,10 @@ module mkCacheCore#(Integer cacheId,
   Wire#(Bool)                                                   gotResp <- mkDWire(False);
   Wire#(Bool)                                                missedResp <- mkDWire(False);
   Wire#(Bool)                                                    putReq <- mkDWire(False);
-  FF#(ReqIdWithSC,TMul#(inFlight,2))                         writeResps <- mkUGFFDebug("CacheCoreRealAssociative_writeResps");
+  // RUNTYPE: more informative writeresps
+  // FF#(ReqIdWithSC,TMul#(inFlight,2))                         writeResps <- mkUGFFDebug("CacheCoreRealAssociative_writeResps");
+  Reg#(VnD#(CheriMemResponse))                       unUsedWriteResp[2] <- mkCReg(2, VnD{v: False, d: ?});
+
   ControlToken#(ways, keyBits, tagBits) null_ct = ?;
   null_ct.command = MemResponse;
   null_ct.req.operation = tagged CacheOp CacheOperation{inst: CacheNop, cache: whichCache, indexed: True};
@@ -357,7 +360,22 @@ module mkCacheCore#(Integer cacheId,
                                (readReqReg.v || (!oneInFlight)); // If the readReqReg is valid (but only check this if there is oneInFlight as the ids matching is sufficient otherwise).
   Bool memRspHasResponseRecord = memRsps.notEmpty && ((oneInFlight) ? readRegMatchesMemResp:readReqs.isMember(memRspId).v);
   Bool responseRecordValid = memRsps.notEmpty && readRegMatchesMemResp; 
-                             
+                   
+  function Action debug2(String component, Action a) = action
+    Bool log1 <- $test$plusargs("cache1");
+    Bool log2 <- $test$plusargs("cache2");
+    Bool log3 <- $test$plusargs("cache3");
+    if (cacheId == 1 && log1 && !(cacheState == Init)) begin
+      Debug::debug2(component,a);
+    end
+    if (cacheId == 2 && log2 && !(cacheState == Init)) begin
+      Debug::debug2(component,a);
+    end
+    if (cacheId == 3 && log3 && !(cacheState == Init)) begin
+      Debug::debug2(component,a);
+    end
+  endaction;
+
     
   rule initialize(cacheState == Init);
     debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Initializing tag %0d", $time, cacheId, initCount));
@@ -466,7 +484,15 @@ module mkCacheCore#(Integer cacheId,
         orderer.lookupReport(getReqId(newCt.req), ca.bank, ca.bank, ca.bank + truncate(size));
       end
       
-      if ((memRsps.notEmpty && !orderer.slaveRspIsOngoing()) || !orderer.slaveReqServeReady(reqId,truncateLSB(lookupReq.addr.lineNumber))) begin
+      // RUNTYPE: No default mem response
+      // Cannot determine whether serve is possible until finishLookup has completed
+      // Therefore, if we know memory response will fail, try to serve just in case!
+      // This means memory response even if response not yet ongoing (not a big issue)
+      
+      // OLD version:
+      // if ((memRsps.notEmpty && !orderer.slaveRspIsOngoing()) || !orderer.slaveReqServeReady(reqId,truncateLSB(lookupReq.addr.lineNumber))) begin
+      // NEW version:
+      if (memRsps.notEmpty) begin
         valid = False;
         //newCt = cts;
         newCt.fresh = False;
@@ -739,7 +765,11 @@ module mkCacheCore#(Integer cacheId,
     if (req.operation matches tagged Read .rop) isRead = True;
     
     Bool serveThisReq = (orderer.slaveReqServeReady(reqId, truncateLSB(cts.req.addr.lineNumber))
+                        && !unUsedWriteResp[0].v // RUNTYPE: More informative writeresps (backpressure stalls cache)
                         && !tag.pendMem && commit.v); // If this is the next flit expected
+    // RUNTYPE: more informative writeresps
+    debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> unUsedWriteResp.v: ", $time, cacheId, fshow(unUsedWriteResp[0].v)));
+
     Bool exeThisReq = False;
     // If this is the last flit of transaction
     Bool thisReqLast = orderer.slaveRspLast(reqId, addr.bank);
@@ -770,7 +800,8 @@ module mkCacheCore#(Integer cacheId,
     CheriMemRequest memReq = req; // Request to forward to memory.
     Bool enqRetryReq = False;
     
-    if (!noReqs) debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Commit:%x, Serving request ", $time, cacheId, commit, fshow(ct), fshow(dataRead), fshow(tagsRead)));
+    if (!noReqs) debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Commit:%x, Serving request: ", $time, cacheId, commit, fshow(ct), " | tag read: ", fshow(tag)));
+    // if (!noReqs) debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Commit:%x, Serving request ", $time, cacheId, commit, fshow(ct), fshow(dataRead), fshow(tagsRead)));
 
     `ifdef MONITOR_EVENTS
       EventsCacheCore events = unpack(0);
@@ -853,6 +884,10 @@ module mkCacheCore#(Integer cacheId,
         if (memRsps.notEmpty) begin
           debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> attempting memory response, id: %x, registered_id: %x, responseRecordValid: %d, memRsps.notEmpty: %d, readReqReg.d.outId==getRespId(memResp): %d", 
                                   $time, cacheId, getRespId(memResp), readReqReg.d.outId, responseRecordValid, memRsps.notEmpty, readReqReg.d.outId==getRespId(memResp)));
+          debug2("CacheCore", $display(
+            "<time %0t, cache %0d, CacheCore> ", $time, cacheId,
+            "memRsps.first: ", fshow(memRsps.first)
+          ));
           if (responseRecordValid) begin // Only proceed with a read fill if we guessed the correct id in the lookup stage.
             
             newReadReqReg.v = True; // Mark the readReqReg as serving an active reqeust.
@@ -944,6 +979,12 @@ module mkCacheCore#(Integer cacheId,
             orderer.mastRsp(getRespId(memResp), uncachedResp, getLastField(memResp));
             debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> received write memory response with no response record, id: %x", 
                                           $time, cacheId, getRespId(memResp)));
+            /*
+            `ifdef TAGCONTROLLER_BENCHMARKING
+            // Only pass WriteThrough responses to multilevel tag controller once hear back from DRAM
+            if (writeBehaviour == WriteThrough) forceResponse = True;
+            `endif
+            */
           end
         end
         
@@ -1001,7 +1042,7 @@ module mkCacheCore#(Integer cacheId,
                                                                     write: readRespForWrite
                                                                 };
               newReadReqReg.d = newRec; // In order to update the tag record.
-              debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Updating %x in ID table", $time, cacheId, memRspId, fshow(newRec)));
+              debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Updating %x in ID table ", $time, cacheId, memRspId, fshow(newRec)));
             end else if (!readResponse) begin
               //respValid = True;
               debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> cached and store conditional ", $time, cacheId, fshow(getRespId(cacheResp))));
@@ -1275,7 +1316,12 @@ module mkCacheCore#(Integer cacheId,
                                        }));
                 // If the conditions for a fill are good and we need to, do an eviction.
                 if (tag.dirty) begin
-                  debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> CacheCore - attempting Writeback roomForReadAndWriteback: %x ", $time, cacheId, roomForReadAndWriteback));
+                  debug2("CacheCore", $display(
+                    "<time %0t, cache %0d, CacheCore>", $time, cacheId, 
+                    " CacheCore - attempting Writeback roomForReadAndWriteback: %x ", roomForReadAndWriteback,
+                    " memReqFifoSpace: ", fshow(memReqFifoSpace),
+                    " orderer.mastReqsSpaces: ", fshow(orderer.mastReqsSpaces)
+                  ));
                   if (roomForReadAndWriteback && exeThisReq) Bool wontFail <- doWriteback;
                   else dead = True;
                 end
@@ -1302,6 +1348,8 @@ module mkCacheCore#(Integer cacheId,
 
           // If we intend to issue a new memory request, but an existing memory request is outstanding (and we only support one in flight)...
           if (doMemRequest && oneInFlight && readReqReg.v) dead = True;
+          // Similar condition for if InFlight > 1
+          if (doMemRequest && readReqs.full) dead = True;
           // If this is not the next request, kill the external request under two conditions...
           if (!exeThisReq && !isRead) dead = True;
           if (doMemRequest && !dead) begin
@@ -1482,7 +1530,18 @@ module mkCacheCore#(Integer cacheId,
             // the response is coming later.
             if (conditional && (performWritethrough)) dead = True;
             if (supportInvalidates && writethroughNext.notEmpty && doMemRequest && !dead) writethroughNext.deq;
-            if (miss && (performWritethrough)) respValid = True;
+            if (miss && (performWritethrough)) begin
+              /*
+              debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Set valid because miss and performWritethrough", $time, cacheId));
+              `ifdef TAGCONTROLLER_BENCHMARKING
+              // Only pass WriteThrough responses to multilevel tag controller once hear back from DRAM
+              if(writeBehaviour == WriteAllocate) respValid = True;
+              `else
+              respValid = True;
+              `endif
+              */
+              respValid = True;
+            end
           end
         end
 
@@ -1576,6 +1635,11 @@ module mkCacheCore#(Integer cacheId,
       if (!newReadReqReg.v) begin
         if (memRsps.notEmpty) begin
           maybeNewReadReq = readReqs.isMember(memRspId);
+          debug2("CacheCore", $display(
+            "<time %0t, cache %0d, CacheCore>", $time, cacheId,
+            " memRspId: ", fshow(memRspId),
+            " readReqs.isMember(memRspId): ", fshow(maybeNewReadReq)
+          ));
         end else if (!readReqs.empty) begin
           maybeNewReadReq = readReqs.nextData;
         end
@@ -1600,8 +1664,22 @@ module mkCacheCore#(Integer cacheId,
     if (respValid) debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Setting valid response ", $time, cacheId, fshow(getRespId(cacheResp))));
   endrule
   
+  // These conditions tell us whether a new request will certainly be caught if it is inserted.  
+  Bool putCondition = (
+    // TO FIX: adding these two lines may have led to bugs... not sure why!?
+    !memRsps.notEmpty &&  // Consume memory response rather than fresh request
+    !(retryReqs.nextData().v && readReqs.empty) && // There is a non-miss to retry
+    !orderer.reqsFull && 
+    cacheState != Init && 
+    !writebacks.notEmpty && 
+    !invalidateWritebacks.notEmpty
+  );
+  
+
   (* no_implicit_conditions, fire_when_enabled *)
+  (* descending_urgency = "commonStateUpdate, prefeed" *)
   rule commonStateUpdate; // Ensure that next is dequed every time it is requested to be dequed.
+    debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> commonStateUpdate called.", $time, cacheId));
     ResponseToken rt = resps;
     Bool finishedNewReq = False;
     if (!missedResp) begin
@@ -1629,6 +1707,17 @@ module mkCacheCore#(Integer cacheId,
       retryReqs.insert(getReqId(rt.req), rt.req);
     end
   endrule
+
+
+  rule prefeed (putCondition);
+    debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> commonStateUpdate ending.", $time, cacheId,
+      " canPut: ", fshow(putCondition),
+      " | orderer.reqsFull: ", fshow(orderer.reqsFull),
+      " | cacheState: ", fshow(cacheState),
+      " | writebacks.notEmpty: ", fshow(writebacks.notEmpty),
+      " | invalidateWritebacks.notEmpty: ", fshow(invalidateWritebacks.notEmpty)
+    ));
+  endrule
   
   // This function encapsulates the actions that should be taken to serve
   // the response wires if we will not consume them in the response method.
@@ -1640,29 +1729,39 @@ module mkCacheCore#(Integer cacheId,
       Bool missedRespSig = True;
       if (respsReady) debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> updateStateNoResponse called", $time, cacheId));
       if (!respsReady) begin
+        debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> updateStateNoResponse called BUT respsReady=False", $time, cacheId));
         missedRespSig = False;
-      end else if (rt.resp.operation matches tagged Write &&& writeResps.notFull && whichCache!=ICache) begin
+      // RUNTYPE: more informative writeresps
+      // end else if (rt.resp.operation matches tagged Write &&& writeResps.notFull && whichCache!=ICache) begin
+      end else if (rt.resp.operation matches tagged Write &&& whichCache!=ICache) begin
         debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Missed Delivering write response, buffered it ", $time, cacheId, fshow(rt)));
-        ReqIdWithSC enqToWriteResps = ReqIdWithSC{inId: getRespId(rt.resp), isSC: False, scResult: False};
-        writeResps.enq(enqToWriteResps);
+        // ReqIdWithSC enqToWriteResps = ReqIdWithSC{inId: getRespId(rt.resp), isSC: False, scResult: False};
+        // writeResps.enq(enqToWriteResps);
+        if (unUsedWriteResp[0].v) panic(debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> unUsedWriteResp is full: ", $time, cacheId, fshow(unUsedWriteResp[0]))));
+        unUsedWriteResp[0] <= VnD{v: True, d: rt.resp};
         missedRespSig = False;
-      end else if (rt.resp.operation matches tagged SC .sc &&& writeResps.notFull && whichCache!=ICache) begin
-        debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Missed Delivering SC response, buffered it ", $time, cacheId, fshow(rt)));
-        ReqIdWithSC enqToWriteResps = ReqIdWithSC{inId: getRespId(rt.resp), isSC: True, scResult: sc};
-        writeResps.enq(enqToWriteResps);
-        missedRespSig = False;
+      // NO SUPPORT FOR STORE CONDITIONAL AT THE MOMENT!
+      // end else if (rt.resp.operation matches tagged SC .sc &&& writeResps.notFull && whichCache!=ICache) begin
+      //   debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Missed Delivering SC response, buffered it ", $time, cacheId, fshow(rt)));
+      //   ReqIdWithSC enqToWriteResps = ReqIdWithSC{inId: getRespId(rt.resp), isSC: True, scResult: sc};
+      //   writeResps.enq(enqToWriteResps);
+      //   missedRespSig = False;
       end
       missedResp <= missedRespSig;
     endaction
   endfunction
-  
+
+  PulseWire clearUnUsedWriteResp <- mkPulseWire;
+
+  rule invalidate_buffered_write_resp (clearUnUsedWriteResp);
+    unUsedWriteResp[1] <= VnD{v:False, d: ?};
+  endrule
+
   rule catchResponse(!gotResp);
+    debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Catch response called ", $time, cacheId));
     updateStateNoResponse();
   endrule
-  
-  // These conditions tell us whether a new request will certainly be caught if it is inserted.  
-  Bool putCondition = (!orderer.reqsFull && cacheState != Init && !writebacks.notEmpty && !invalidateWritebacks.notEmpty);
-  
+
   method Bool canPut() = putCondition;
   method Action put(CheriMemRequest req) if (putCondition);
     debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Putting new request ", $time, cacheId, fshow(req)));
@@ -1676,15 +1775,20 @@ module mkCacheCore#(Integer cacheId,
   endmethod
   
   interface CheckedGet response;
-    method canGet = respsReady||writeResps.notEmpty;
+    // RUNTYPE: more informative writeresps
+    // method canGet = respsReady||writeResps.notEmpty;
+    method canGet = respsReady||unUsedWriteResp[0].v;
     method CheriMemResponse peek;
       ResponseToken rt = resps;
       CheriMemResponse ret = rt.resp;
-      if (writeResps.notEmpty) begin
-        ret = defaultValue;
-        ret.masterID = writeResps.first.inId.masterID;
-        ret.transactionID = writeResps.first.inId.transactionID;
-        ret.operation = writeResps.first.isSC ? tagged SC  writeResps.first.scResult : tagged Write;
+      // if (writeResps.notEmpty) begin
+      //   ret = defaultValue;
+      //   ret.masterID = writeResps.first.inId.masterID;
+      //   ret.transactionID = writeResps.first.inId.transactionID;
+      //   ret.operation = writeResps.first.isSC ? tagged SC  writeResps.first.scResult : tagged Write;
+      // end
+      if (unUsedWriteResp[0].v) begin 
+        ret = unUsedWriteResp[0].d;
       end
       return ret;
     endmethod
@@ -1693,13 +1797,18 @@ module mkCacheCore#(Integer cacheId,
       ResponseToken rt = resps;
       CheriMemResponse ret = rt.resp;
       debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> get called ", $time, cacheId));
-      if (writeResps.notEmpty) begin
-        ret = defaultValue;
-        ret.masterID = writeResps.first.inId.masterID;
-        ret.transactionID = writeResps.first.inId.transactionID;
-        ret.operation = writeResps.first.isSC ? tagged SC  writeResps.first.scResult : tagged Write;
-        writeResps.deq;
-        debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Delivering valid buffered write response, last: %d ", $time, cacheId, getLastField(ret), fshow(getRespId(ret))));
+      // if (writeResps.notEmpty) begin
+      //   ret = defaultValue;
+      //   ret.masterID = writeResps.first.inId.masterID;
+      //   ret.transactionID = writeResps.first.inId.transactionID;
+      //   ret.operation = writeResps.first.isSC ? tagged SC  writeResps.first.scResult : tagged Write;
+      //   writeResps.deq;
+      //   debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Delivering valid buffered write response, last: %d ", $time, cacheId, getLastField(ret), fshow(getRespId(ret))));
+      //   updateStateNoResponse();
+      if (unUsedWriteResp[0].v) begin 
+        ret = unUsedWriteResp[0].d;
+        debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Delivering valid buffered write response: %d ", $time, cacheId, fshow(ret)));
+        clearUnUsedWriteResp.send();
         updateStateNoResponse();
       end else begin // respsReady in this case.
         debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> Delivering valid response ", $time, cacheId, fshow(ret)));

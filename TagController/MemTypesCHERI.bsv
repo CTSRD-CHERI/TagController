@@ -322,6 +322,10 @@ instance FShow#(MemoryRequest#(a,b,c,d))
                 $format(" | address: 0x%0x ",pack(req.addr), fshow(req.addr)) +
                 $format(" | uncached: ") + fshow(rop.uncached) +
                 $format(" | linked: ") + fshow(rop.linked) +
+                `ifdef USECAP
+                    // tag only read
+                    $format(" | tagOnlyRead: ") + fshow(rop.tagOnlyRead) +
+                `endif
                 $format(" | noOfFlits(-1): %0d", rop.noOfFlits) +
                 $format(" | bytesPerFlit: ") + fshow(rop.bytesPerFlit)
             );
@@ -380,6 +384,14 @@ typedef UInt#(2) Bank;
   typedef TLog#(TDiv#(TagCacheKilobytes, TMul#(CheriBusBytes,Banks))) Indices; // 128KiB XXX: Don't hardcode?
 `endif
 Bit#(3) indicesMinus6 = fromInteger(valueOf(Indices) - 6);
+
+// RUNTYPE: in flight operations
+// NOTE: must be a power of 2
+// typedef 4 InFlight;
+typedef 16 InFlight;
+// // For sims with latency:
+// typedef 64 InFlight;
+typedef Bit#(TLog#(InFlight)) TagRequestID;
 
 //////////////////////////////////
 // cheri memory response format //
@@ -443,6 +455,10 @@ instance FShow#(MemoryResponse#(a,b,c))
                 $format(" | transactionID: %0d", rsp.transactionID) +
                 $format(" | error: ") + fshow(rsp.error) +
                 $format(" | last: ") + fshow(rop.last) +
+                `ifdef USECAP
+                    // tag only read
+                    $format(" | tagOnlyRead: ") + fshow(rop.tagOnlyRead) +
+                `endif
                 $format(" | data: ") + fshow(rsp.data)
             );
             tagged Write: return (

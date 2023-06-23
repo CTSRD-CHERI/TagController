@@ -44,7 +44,8 @@ import Connectable::* ;
 import MemoryClient::*;
 import BlueAXI4::*;
 import TestEquiv::*;
-import ModelDRAM :: *;
+// import ModelDRAM :: *;
+import BenchModelDRAM :: *;
 import Clocks::*;
 import BlueCheck::*;
 import StmtFSM::*;
@@ -63,10 +64,16 @@ module [Module] mkTestMemTopSingle (Empty);
 
   // Implementation
   //AXITagShim#(0,32,128,0) dut <- mkDummyDUT(reset_by r.new_rst);
-  TagControllerAXI#(4,32,128) dut <- mkTagControllerAXI(reset_by r.new_rst);
+  TagControllerAXI#(32,32,128) dut <- mkTagControllerAXI(
+    `ifdef TAGCONTROLLER_BENCHMARKING
+    True, // Connect to DRAM at start
+    `endif 
+    reset_by r.new_rst
+  );
   // Instantiate DRAM model
   // (max oustanding requests = 4)
-  AXI4_Slave#(8, 32, 128, 0, 0, 0, 0, 0) dram <- mkModelDRAMAssoc(4, reset_by r.new_rst);
+  // AXI4_Slave#(8, 32, 128, 0, 0, 0, 0, 0) dram <- mkModelDRAMAssoc(4, reset_by r.new_rst);
+  AXI4_Slave#(SizeOf#(MemTypesCHERI::ReqId), 32, 128, 0, 0, 0, 0, 0) dram <- BenchModelDRAM::mkModelDRAMAssoc(16, 2, reset_by r.new_rst);
   // Connect core to DRAM
   mkConnection(dut.master, dram, reset_by r.new_rst);
   // Create test client for DUT
@@ -82,7 +89,7 @@ module [Module] mkTestMemTopSingle (Empty);
   function double(x) = x*2;
   params.id.incDepth = double;
   params.id.initialDepth = 4;
-  params.id.testsPerDepth = 10000;
+  params.id.testsPerDepth = 1000;
   params.numIterations = 12;
 
   // Generate checker

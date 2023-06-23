@@ -1,0 +1,12 @@
+build/
+output/
+Logs/
+buildsteps.txt
+State.txt
+TagController/TagTableStructure.bsv
+*.dat
+*.png
+*.pdf
+analysis/__pycache__
+dramtraces/*
+output.txt

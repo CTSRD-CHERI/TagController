@@ -104,13 +104,29 @@ interface CacheCorderer#(numeric type inFlight);
 endinterface: CacheCorderer
 
 module mkCacheCorderer#(Integer cacheId)(CacheCorderer#(inFlight));
+                   
+  function Action debug2(String component, Action a) = action
+    Bool log1 <- $test$plusargs("cache1");
+    Bool log2 <- $test$plusargs("cache2");
+    Bool log3 <- $test$plusargs("cache3");
+    if (cacheId == 1 && log1) begin
+      Debug::debug2(component,a);
+    end
+    if (cacheId == 2 && log2) begin
+      Debug::debug2(component,a);
+    end
+    if (cacheId == 3 && log3) begin
+      Debug::debug2(component,a);
+    end
+  endaction;
+
   Bool oneInFlight = valueOf(inFlight) == 1;
   
   Reg#(TransRecord)                          lookupState <- mkConfigReg(defaultTransRecord);
   
   Bag#(inFlight, ReqId, ReqRec)                slaveReqs <- mkSmallBag;
   Bag#(inFlight, Line, ReqId)                 slaveAddrs <- mkSmallBag;
-  Bag#(inFlight, ReqId, ReqId)                 slaveDeps <- mkSmallBag; // Record ordering dependencies.
+  Bag#(inFlight, ReqId, Maybe#(ReqId))                 slaveDeps <- mkSmallBag; // Record ordering dependencies.
   FF#(ReqId,2)                           waitingSlaveReq <- mkUGFF;
   Reg#(TransRecord)                       slaveRespState <- mkConfigReg(defaultTransRecord);
   
@@ -176,7 +192,7 @@ module mkCacheCorderer#(Integer cacheId)(CacheCorderer#(inFlight));
     state.ongoing = (flit != state.last);
     state.next = (flit+1<=state.last) ? flit + 1:state.first;
     state.id = id;
-    debug2("corderer", $display("<time %0t, cache %0d, CacheCorderer> Lookup, id:%x, flit:%x:,  slaveDeps.dataMatch(id):%x ", $time, cacheId, id, flit, slaveDeps.dataMatch(id), fshow(req), fshow(lookupState), fshow(state)));
+    debug2("corderer", $display("<time %0t, cache %0d, CacheCorderer> Lookup, id:%x, flit:%x:,  slaveDeps.dataMatch(id):%x ", $time, cacheId, id, flit, slaveDeps.dataMatch(tagged Valid id), fshow(req), fshow(lookupState), fshow(state)));
     lookupState <= state;
   endmethod
   
@@ -184,17 +200,19 @@ module mkCacheCorderer#(Integer cacheId)(CacheCorderer#(inFlight));
     // Check if there are any IDs outstanding on this address.
     VnD#(ReqId) idBeforeMe = slaveAddrs.isMember(line);
     ReqRec recReq = ReqRec{id: id, line: line, first: first, last: last, idBeforeMe: idBeforeMe};
-    if (idBeforeMe.v) slaveDeps.update(idBeforeMe.d, id);
+    if (idBeforeMe.v) slaveDeps.update(idBeforeMe.d, tagged Valid id);
     debug2("corderer", $display("<time %0t, cache %0d, CacheCorderer> Slave request: ", $time, cacheId, fshow(recReq)));
     // Then overwrite any id for this address.
     slaveAddrs.insert(line, id);
     slaveReqs.insert(id, recReq);
-    slaveDeps.insert(id, unpack(~0));
+    // BUGFIX: previously was insert unpack(~0)
+    // This caused issues when id = unpack(~0) as get circular dependency
+    slaveDeps.insert(id, tagged Invalid);
   endmethod
   method Bool slaveReqServeReady(ReqId id, Line line);
     VnD#(ReqRec) req = slaveReqs.isMember(id);
     // We're blocked if there was a blocking request, and record of that dependency is still in slaveDeps.
-    Bool anotherIdBlockingThisKey = slaveDeps.dataMatch(id);
+    Bool anotherIdBlockingThisKey = slaveDeps.dataMatch(tagged Valid id);
     Bool ready = ((!anotherIdBlockingThisKey || oneInFlight) &&
                   !slaveReqs.empty &&
                   !mastLines.dataMatch(line));
@@ -209,7 +227,7 @@ module mkCacheCorderer#(Integer cacheId)(CacheCorderer#(inFlight));
     Bool ready = (id == state.id && flit == state.next);
     
     // We're blocked if there was a blocking request, and that request is still in the bag.
-    Bool anotherIdBlockingThisKey = slaveDeps.dataMatch(id);
+    Bool anotherIdBlockingThisKey = slaveDeps.dataMatch(tagged Valid id);
     if (!state.ongoing)
       ready = ((!anotherIdBlockingThisKey || oneInFlight)
                && req.v // id found in slaveReqs (should be redundant if in queue) 
