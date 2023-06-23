@@ -7,23 +7,42 @@ import asyncio
 import log_consumer as logcon
 
 
+starting = f"output/STARTING/fromfile"
+incremental = f"output/INCREMENTAL/fromfile"
+not_ooo = f"output/NOT_OOO/fromfile"
+final = f"output/FINAL/fromfile"
+
+SIMULATION = f"output/fromfile"
+
 # Not used at the moment
 experiment_name = sys.argv[1]
+simulation_name = sys.argv[2]
+
+match simulation_name:
+    case "starting":
+        SIMULATION = starting
+    case "incremental":
+        SIMULATION = incremental
+    case "not_ooo":
+        SIMULATION = not_ooo
+    case "final":
+        SIMULATION = final
 
 log_consumer = logcon.LogConsumer(pipelined=True)
 
-
 async def main_loop():
     fromfile_process = await asyncio.create_subprocess_exec(
-        f"output/fromfile",
+        SIMULATION,
         "+tracing",
         "+pipe",
         # "+taglookup",
         # "+tagcontroller",
-        "+AXItagcontroller",
+        # "+AXItagcontroller",
         # "+CacheCore",
         # "+corderer",
         # "+cache1",
+        # "+cache2",
+        # "+cache3",
         # "+benchmark",
         # "+dram",
         # "+AXItagwriter",
@@ -49,6 +68,7 @@ asyncio.run(main_loop())
 # Prints to experiment log file
 print(log_consumer.performance_str())
 # print(log_consumer)
+log_consumer.save_end_times(f"Logs/end_times/{experiment_name}")
 
 # Seems to be needed!!
 exit(0)

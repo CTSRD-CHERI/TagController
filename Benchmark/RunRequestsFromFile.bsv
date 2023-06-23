@@ -207,7 +207,7 @@ module mkFileToTagController#(
     // What id to use for next op
     Reg#(Bit#(AXI_id_width)) idCount <- mkReg(0);
     // FIFO storing details of outstanding loads/stores
-    FIFOF#(FileMemoryOp) outstandingFIFO <- mkSizedFIFOF(16);
+    FIFOF#(FileMemoryOp) outstandingFIFO <- mkSizedFIFOF(valueOf(MemTypesCHERI::InFlight));
 
     // Decided which tag controller to use for requests / responses
     // NOTE: scheduler assumes that need BOTH to be ready in order to do anything
