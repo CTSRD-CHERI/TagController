@@ -239,7 +239,7 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, 1, 0, 1, 1) axiSl
       Bit#(64) fullAddr = fromAddr(addr, addrMap);
 
       debug2("memoryclient", $display("<time %0t MemoryClient> Load issued: ", $time, fshow(addr), " -> ", fshow(fullAddr)));
-      
+
       AXI4_ARFlit#(idWidth, addrWidth, 1) addrReq = defaultValue;
       addrReq.arid = truncate(idCount);
       idCount <= idCount + 1;
@@ -251,7 +251,7 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, 1, 0, 1, 1) axiSl
       requestIDOrder.enq(addrReq.arid);
       debug2("memoryclient", $display("<time %0t MemoryClient> Load issued: ", $time, fshow(addrReq)));
       // debug2("memoryclient", $display("<time %0t MemoryClient> idWidth: ", $time, fshow(idWidth)));
-      
+
 
       outstandingFIFO.enq(OutstandingMemInstr{
         isLoad: True,
@@ -262,7 +262,7 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, 1, 0, 1, 1) axiSl
   function Action storeGeneric(Data data, Addr addr) =
     action
       Bit#(64) fullAddr = fromAddr(addr, addrMap);
-      
+
       debug2("memoryclient", $display("<time %0t MemoryClient> Store issued: ", $time, fshow(data), " sent to ", fshow(addr), " -> ", fshow(fullAddr)));
 
       AXI4_AWFlit#(idWidth, addrWidth, 0) addrReq = defaultValue;
@@ -327,9 +327,6 @@ module mkMemoryClientGolden (MemoryClient);
   RegFile#(Bit#(NumAddrBits), Data) memA <- mkRegFileFull;
   RegFile#(Bit#(NumAddrBits), Data) memB <- mkRegFileFull;
 
-  // Keep track of tag bits
-  RegFile#(Addr, Bool) tagMem <- mkRegFileFull;
-
   // Initialisation
   Reg#(Bool) init <- mkReg(True);
   Reg#(Addr) memAddr <- mkReg(minBound);
@@ -344,13 +341,13 @@ module mkMemoryClientGolden (MemoryClient);
       memAddr <= unpack(pack(memAddr) + 1);
     memA.upd(memAddr.addr, 0);
     memB.upd(memAddr.addr, 0);
-    tagMem.upd(memAddr, False);
   endrule
 
   // Load value at address into register
   method Action load(Addr addr) if (!init);
     let dA = memA.sub(addr.addr);
     let dB = memB.sub(addr.addr);
+    debug2("memoryclient", $display("<time %0t MemoryClientGolden> load dA: ", $time, fshow(dA), ", dB ", fshow(dB), " addr.dword: %d ", addr.dword));
     responseFIFO.enq(DataResponse(addr.dword == 1 ? dB : dA));
   endmethod
 
@@ -360,7 +357,6 @@ module mkMemoryClientGolden (MemoryClient);
       memB.upd(addr.addr, data);
     else
       memA.upd(addr.addr, data);
-    tagMem.upd(addr, False);
   endmethod
 
   // Check if all outstanding operations have been consumed
