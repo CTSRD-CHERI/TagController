@@ -225,7 +225,7 @@ module mkPipelinedTagLookup #(
   // BACKUP
 
   // memory requests fifo
-  FF#(CheriMemRequest, 16)  backupMemoryReqs <-  mkUGFFDebug("TagLookup_backupMemoryReqs");
+  FF#(CheriMemRequest, 16) backupMemoryReqs <-  mkUGFFDebug("TagLookup_backupMemoryReqs");
   // memory response fifo
   FF#(CheriMemResponse, 2) backupMemoryRsps <- mkUGFFDebug("TagLookup_backupMemoryRsps");
 
@@ -434,7 +434,7 @@ module mkPipelinedTagLookup #(
     if(resp_taken) finished = finished + 1;
     if(new_request) finished = finished - 1;
     if(fold_cancelled) finished = finished + 1;
-
+/*
     debug2("taglookup", $display(
       "<time %0t TagLookup>", $time,
       " Ops in flight was: ", fshow(current_ops_in_flight),
@@ -445,7 +445,7 @@ module mkPipelinedTagLookup #(
       " resp_taken: ", fshow(resp_taken),
       " fold_cancelled: ", fshow(fold_cancelled)
     ));
-
+*/
     current_ops_in_flight <= current_ops_in_flight - finished;
   endrule
 
@@ -1253,7 +1253,7 @@ module mkPipelinedTagLookup #(
     init_done <= True;
   endrule
   `endif
-
+/*
   rule debug;
     debug2("taglookup", $display(
       "<time %0t TagLookup> ", $time,
@@ -1265,7 +1265,7 @@ module mkPipelinedTagLookup #(
       " lateRsps.remaining: ", fshow(lateRsps.remaining)
     ));
   endrule
-
+*/
 
   // Sub interfaces
   /////////////////////////////////////////////////////////////////////////////

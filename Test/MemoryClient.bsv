@@ -104,20 +104,28 @@ typedef struct {
   Bit#(idWidth) id;      // ID of the next response (in order)
   Bit#(8) lowAddr;       // Lower 8-bits of address
 } OutstandingMemInstr#(numeric type idWidth)
-  deriving (Bits);
+  deriving (Bits, FShow);
+
+typedef struct {
+  Addr addr;
+  Data data;
+  Bool isLoad;
+} TestReq
+  deriving (Bits, FShow);
 
 // How to map an Addr to a 24-bit physical address offset
 typedef struct {
   Vector#(NumAddrBits, Bit#(5)) index;
 } AddrMap deriving (Bits, Eq, Bounded);
 
-// Convert an Addr to a 64-bit MIPS virtual address
+// Convert an Addr to a 64-bit virtual address
 function Bit#(64) fromAddr(Addr x, AddrMap addrMap);
   Bit#(24) offset = 0;
   for (Integer i = 0; i < valueOf(NumAddrBits); i=i+1)
     offset[addrMap.index[i]] = x.addr[i];
-  Bit#(5) line = extend({x.dword, 4'b000});
-  return (64'h00000000 + {0, offset, line });
+  CheriPhyAddr addr = PhyByteAddress{lineNumber: {0, offset, x.dword}, byteOffset: 0};
+  //Bit#(5) line = extend({x.dword, 4'b000});
+  return zeroExtend(pack(addr));
 endfunction
 
 // Functions ==================================================================
@@ -180,7 +188,11 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, Wd_Data, 0, CapsPerFlit, 
   // FIFO storing details of outstanding loads
   FIFOF#(OutstandingMemInstr#(idWidth)) outstandingFIFO <- mkSizedFIFOF(16);
 
-  Reg#(Bit#(8)) idCount <- mkReg(0);
+  // FIFOs for tracking addresses of outstanding requests to ensure we don't
+  // issue multiple requests to the same address concurrently.
+  Vector#(TExp#(idWidth), FIFOF#(Addr)) addrFifos <- replicateM(mkUGFIFOF1);
+
+  Reg#(Bit#(idWidth)) idCount <- mkReg(0);
 
   // Address mapping
   Reg#(AddrMap) addrMap <- mkRegU;
@@ -188,16 +200,18 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, Wd_Data, 0, CapsPerFlit, 
   // Fill response FIFO
   rule handleWriteResponses (axiSlave.b.canPeek);
     let b <- get(axiSlave.b);
-    $display("MemoryClient handleWriteResponse: ", fshow(b));
-    outstandingFIFO.deq;
+    debug2("memoryclient", $display("<time %0t MemoryClient> MemoryClient handleWriteResponse: ", $time, fshow(b)));
+    addrFifos[b.bid].deq;
   endrule
   rule handleReadResponses (axiSlave.r.canPeek);
     let r <- get(axiSlave.r);
-    $display("MemoryClient handleReadResponses: ", fshow(r));
+    debug2("memoryclient", $display("<time %0t MemoryClient> MemoryClient handleReadResponses: ", $time, fshow(r)));
     responseFifos[r.rid].enq(DataResponse(toData(r.ruser, r.rdata)));
+    addrFifos[r.rid].deq;
   endrule
   FIFOF#(MemoryClientResponse) nextResponseFIFO = responseFifos[outstandingFIFO.first.id];
   rule forwardReadResponseInOrder(nextResponseFIFO.notEmpty);
+    debug2("memoryclient", $display("<time %0t MemoryClient> MemoryClient forwardReadResponse: ", $time, fshow(nextResponseFIFO.first), " outstandingFIFO: ", fshow(outstandingFIFO.first)));
     responseFIFO.enq(nextResponseFIFO.first);
     nextResponseFIFO.deq;
     outstandingFIFO.deq;
@@ -216,59 +230,65 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, Wd_Data, 0, CapsPerFlit, 
   //   );
   // endrule
 
-  // Functions
-  function Action loadGeneric(Addr addr) =
-    action
-      Bit#(64) fullAddr = fromAddr(addr, addrMap);
+  FIFO#(TestReq) reqQue <- mkBypassFIFO;
+  function Bool matchReqQue(FIFOF#(Addr) f) = (f.notEmpty && f.first == reqQue.first.addr);
+  Bool blockNewReq = any(matchReqQue,addrFifos);
+  rule loadGeneric(!blockNewReq && reqQue.first.isLoad);
+    let r <- get(reqQue);
+    Bit#(64) fullAddr = fromAddr(r.addr, addrMap);
 
-      debug2("memoryclient", $display("<time %0t MemoryClient> Load issued: ", $time, fshow(addr), " -> ", fshow(fullAddr)));
+    debug2("memoryclient", $display("<time %0t MemoryClient> Load issued: ", $time, fshow(r.addr), " -> ", fshow(fullAddr)));
 
-      AXI4_ARFlit#(idWidth, addrWidth, 1) addrReq = defaultValue;
-      addrReq.arid = truncate(idCount);
-      idCount <= idCount + 1;
-      addrReq.araddr = truncate(fullAddr);
-      addrReq.arsize = 16;
-      addrReq.arcache = 4'b1011;
+    AXI4_ARFlit#(idWidth, addrWidth, 1) addrReq = defaultValue;
+    addrReq.arid = idCount;
+    idCount <= idCount + 1;
+    addrReq.araddr = truncate(fullAddr);
+    addrReq.arsize = 16;
+    addrReq.arcache = 4'b1011;
 
-      axiSlave.ar.put(addrReq);
-      debug2("memoryclient", $display("<time %0t MemoryClient> Load issued: ", $time, fshow(addrReq)));
-      // debug2("memoryclient", $display("<time %0t MemoryClient> idWidth: ", $time, fshow(idWidth)));
+    axiSlave.ar.put(addrReq);
+    debug2("memoryclient", $display("<time %0t MemoryClient> Load issued: ", $time, fshow(addrReq), " id: ", fshow(idCount)));
+    // debug2("memoryclient", $display("<time %0t MemoryClient> idWidth: ", $time, fshow(idWidth)));
 
 
-      outstandingFIFO.enq(OutstandingMemInstr{
-        id: truncate(idCount),
-        lowAddr: fullAddr[7:0]
-      });
-    endaction;
+    outstandingFIFO.enq(OutstandingMemInstr{
+      id: idCount,
+      lowAddr: fullAddr[7:0]
+    });
 
-  function Action storeGeneric(Data data, Addr addr) =
-    action
-      Bit#(64) fullAddr = fromAddr(addr, addrMap);
+    addrFifos[idCount].enq(r.addr);
+  endrule
 
-      debug2("memoryclient", $display("<time %0t MemoryClient> Store issued: ", $time, fshow(data), " sent to ", fshow(addr), " -> ", fshow(fullAddr)));
+  rule storeGeneric(!blockNewReq && !reqQue.first.isLoad);
+    let r <- get(reqQue);
+    Bit#(64) fullAddr = fromAddr(r.addr, addrMap);
 
-      AXI4_AWFlit#(idWidth, addrWidth, 0) addrReq = defaultValue;
-      addrReq.awid = truncate(idCount);
-      idCount <= idCount + 1;
-      addrReq.awcache = 4'b1011;
-      addrReq.awaddr = truncate(fullAddr);
-      axiSlave.aw.put(addrReq);
+    debug2("memoryclient", $display("<time %0t MemoryClient> Store issued: ", $time, fshow(r.data), " sent to ", fshow(r.addr), " -> ", fshow(fullAddr)));
 
-      AXI4_WFlit#(Wd_Data, CapsPerFlit) dataReq = defaultValue;
-      match {.t, .d} = fromData(data);
-      dataReq.wuser = t;
-      dataReq.wdata = d;
-      axiSlave.w.put(dataReq);
-    endaction;
+    AXI4_AWFlit#(idWidth, addrWidth, 0) addrReq = defaultValue;
+    addrReq.awid = idCount;
+    idCount <= idCount + 1;
+    addrReq.awcache = 4'b1011;
+    addrReq.awaddr = truncate(fullAddr);
+    axiSlave.aw.put(addrReq);
+
+    AXI4_WFlit#(Wd_Data, CapsPerFlit) dataReq = defaultValue;
+    match {.t, .d} = fromData(r.data);
+    dataReq.wuser = t;
+    dataReq.wdata = d;
+    axiSlave.w.put(dataReq);
+    debug2("memoryclient", $display("<time %0t MemoryClient> Store issued: ", $time, fshow(addrReq), " ", fshow(dataReq)));
+    addrFifos[idCount].enq(r.addr);
+  endrule
 
   // Load value at address into register
   method Action load(Addr addr);
-    loadGeneric(addr);
+    reqQue.enq(TestReq{data: ?, addr: addr, isLoad: True});
   endmethod
 
   // Store data to address
   method Action store(Data data, Addr addr);
-    storeGeneric(data, addr);
+    reqQue.enq(TestReq{data: data, addr: addr, isLoad: False});
   endmethod
 
   method ActionValue#(MemoryClientResponse) getResponse =
@@ -325,6 +345,7 @@ module mkMemoryClientGolden (MemoryClient);
 
   // Store data to address
   method Action store(Data data, Addr addr) if (!init);
+    debug2("memoryclient", $display("<time %0t MemoryClientGolden> store data: ", $time, fshow(data), ", addr ", fshow(addr)));
     if (addr.dword == 1)
       memB.upd(addr.addr, data);
     else
