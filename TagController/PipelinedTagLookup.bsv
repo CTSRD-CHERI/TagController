@@ -169,7 +169,7 @@ module mkPipelinedTagLookup #(
     sprintf("Python-calculated table base 0x%0x != bluespec-calculated table base 0x%0x",
       pack(tagTabStrtAddr), pack(tableDesc[1].startAddr)));
 
-  // Caches 
+  // Caches
   /////////////////////////////////////////////////////////////////////////////
 
   // ROOT
@@ -180,13 +180,13 @@ module mkPipelinedTagLookup #(
   FF#(CheriMemResponse, 2) rootBackupRsps <- mkUGFFDebug("TagLookup_rootBackupRsps");
 
   `ifdef SMALL_TAG_CACHE
-  CacheCore#(4, TSub#(Indices,2), CacheOpsInFlight)  rootCache <- mkCacheCore(
-  `else 
-  CacheCore#(4, TSub#(Indices,4), CacheOpsInFlight)  rootCache <- mkCacheCore(
+  CacheCore#(1, TSub#(Indices,2), CacheOpsInFlight)  rootCache <- mkCacheCore(
+  `else
+  CacheCore#(1, TSub#(Indices,4), CacheOpsInFlight)  rootCache <- mkCacheCore(
   `endif
-    1, WriteAllocate, RespondAll, TCache,
+    1, WriteThrough, RespondAll, TCache,
     zeroExtend(rootBackupReqs.remaining()), ff2fifof(rootBackupReqs), ff2fifof(rootBackupRsps));
-    
+
   // Simply stuff "True" into commits because we never cancel transactions here
   rule stuffRootCommits;
     rootCache.nextWillCommit(True);
@@ -198,18 +198,18 @@ module mkPipelinedTagLookup #(
   endinterface;
 
   // LEAF
-    
+
   // memory requests fifo
   FF#(CheriMemRequest, 8)  leafBackupReqs <-  mkUGFFDebug("TagLookup_leafBackupReqs");
   // memory response fifo
   FF#(CheriMemResponse, 2) leafBackupRsps <- mkUGFFDebug("TagLookup_leafBackupRsps");
 
   `ifdef SMALL_TAG_CACHE
-  CacheCore#(4, TSub#(Indices,2), CacheOpsInFlight)  leafCache <- mkCacheCore(
-  `else 
-  CacheCore#(4, TSub#(Indices,4), CacheOpsInFlight)  leafCache <- mkCacheCore(
+  CacheCore#(1, TSub#(Indices,2), CacheOpsInFlight)  leafCache <- mkCacheCore(
+  `else
+  CacheCore#(1, TSub#(Indices,4), CacheOpsInFlight)  leafCache <- mkCacheCore(
   `endif
-    1, WriteAllocate, RespondAll, TCache,
+    1, WriteThrough, RespondAll, TCache,
     zeroExtend(leafBackupReqs.remaining()), ff2fifof(leafBackupReqs), ff2fifof(leafBackupRsps));
 
   // Simply stuff "True" into commits because we never cancel transactions here
@@ -234,7 +234,7 @@ module mkPipelinedTagLookup #(
   CacheCore#(4, TSub#(Indices,2), CacheOpsInFlight)  backupCache <- mkCacheCore(
     1, WriteAllocate, RespondAll, TCache,
     zeroExtend(backupMemoryReqs.remaining()), ff2fifof(backupMemoryReqs), ff2fifof(backupMemoryRsps));
-  
+
   // Simply stuff "True" into commits because we never cancel transactions here
   rule stuffBackupCommits;
     backupCache.nextWillCommit(True);
@@ -329,7 +329,7 @@ module mkPipelinedTagLookup #(
   endfunction
 
   function CheriMemRequest craftTagReadReq (
-    TDepth d, 
+    TDepth d,
     CapNumber cn
   );
     CheriPhyAddr a = getTableAddr(d,cn).byteAddr;
@@ -353,7 +353,7 @@ module mkPipelinedTagLookup #(
     Vector#(howmanybits,Bool) ts, // tags
     Vector#(howmanybits,Bool) ce, // "cap enable"
     Maybe#(TableLvl) nz // need zeroing
-  ); 
+  );
     // prepare address
     CheriPhyBitAddr a = getTableAddr(d,cn);
     CheriPhyByteOffset byteOffset = a.byteAddr.byteOffset;
@@ -434,7 +434,7 @@ module mkPipelinedTagLookup #(
     if(resp_taken) finished = finished + 1;
     if(new_request) finished = finished - 1;
     if(fold_cancelled) finished = finished + 1;
-    
+
     debug2("taglookup", $display(
       "<time %0t TagLookup>", $time,
       " Ops in flight was: ", fshow(current_ops_in_flight),
@@ -450,7 +450,7 @@ module mkPipelinedTagLookup #(
   endrule
 
 
-  // Root tags lookup 
+  // Root tags lookup
   /////////////////////////////////////////////////////////////////////////////
 
   // Used for requests to rootCache
@@ -462,7 +462,7 @@ module mkPipelinedTagLookup #(
     CheriTransactionID, // Key type
     RequestInfo         // Data type
   ) inFlightRootReqs <- mkSmallBag();
-  
+
 
   // RUNTYPE: LOCK ON FOLD
   // If there might be a fold later then stall
@@ -493,12 +493,12 @@ module mkPipelinedTagLookup #(
   // created but a leaf response id dequeued. Add an extra slot so consumeRootResponse
   // can be called even if InFlight/2 requests are in the fifo
   // FF#(LookupResponse, TAdd#(TDiv#(`TagOpsInFlight,2),1)) earlyRsps <- mkUGFFDebug("TagLookup_earlyRsps");
-  
+
   // RUNTYPE: limit latency
   // FF#(LookupResponse, `TagOpsInFlight) earlyRsps <- mkUGFFDebug("TagLookup_earlyRsps");
   FF#(LookupResponse, 1) earlyRsps <- mkUGLFF1();
 
-  // Processes request (e.g. from tag controller) and put it into pendingRootReqs 
+  // Processes request (e.g. from tag controller) and put it into pendingRootReqs
   function Action handle_new_root_request(CheriTagRequest req);
     return (
       action
@@ -519,7 +519,7 @@ module mkPipelinedTagLookup #(
 
         // work out what to do depending on operation type
         case(req.operation) matches
-          tagged Read: begin 
+          tagged Read: begin
             opType = Read;
             doTagRequest = True;
 
@@ -529,10 +529,10 @@ module mkPipelinedTagLookup #(
             debug2("tracing", $display(
               "<time %0t Tracing> ", $time, fshow(req.bench_id), " ",
               "start ROOT | read"
-            )); 
+            ));
             `endif
           end
-          tagged Write .wop: begin 
+          tagged Write .wop: begin
             // get cap tags
             LineTags capTags = wop.tags;
             LineTags capEnable = wop.writeEnable;
@@ -550,7 +550,7 @@ module mkPipelinedTagLookup #(
 
             // Ignore request if not writing any tags
             // TODO: move this out of pipelinedtaglookup - waste of time!
-            // TODO: eeek need to return response for this ID. 
+            // TODO: eeek need to return response for this ID.
             //       (until get rid of write responses!!)
             if (all(isFalse,capEnable)) begin
               doTagRequest = False;
@@ -565,30 +565,30 @@ module mkPipelinedTagLookup #(
               debug2("tracing", $display(
                 "<time %0t Tracing> ", $time, fshow(req.bench_id), " ",
                 "start ROOT | read | CLEARING"
-              )); 
+              ));
               `endif
             end else begin
               // when writing at least a 1
               opType = Set;
               doTagRequest = True;
-              
+
               rootReq = craftTagWriteReq(rootLvl,capAddr.capNumber,capTags,capEnable,tagged Invalid);
-              
+
               `ifdef TAGCONTROLLER_BENCHMARKING
               debug2("tracing", $display(
                 "<time %0t Tracing> ", $time, fshow(req.bench_id), " ",
                 "start ROOT | write"
-              )); 
+              ));
               `endif
             end
           end
-        endcase 
-      
-        if(doTagRequest) begin 
+        endcase
+
+        if(doTagRequest) begin
           let request_info = RequestInfo{
             `ifdef TAGCONTROLLER_BENCHMARKING
             bench_id: bench_id,
-            `endif 
+            `endif
             opType: opType,
             capNumber: capAddr.capNumber,
             newTagValues: newTagValues,
@@ -596,7 +596,7 @@ module mkPipelinedTagLookup #(
             request_id: request_id
           };
 
-          debug2("taglookup", $display( 
+          debug2("taglookup", $display(
             "<time %0t TagLookup> ", $time,
             "Received new request: ", fshow(request_info)
           ));
@@ -617,12 +617,12 @@ module mkPipelinedTagLookup #(
   endfunction
 
   rule issueRootRequest (
-    rootCache.canPut && 
+    rootCache.canPut &&
     (
       // RUNTYPE: LOCK ON FOLD
-      // (pendingRootReqs.notEmpty && !rootStalled[2]) 
+      // (pendingRootReqs.notEmpty && !rootStalled[2])
       pendingRootReqs.notEmpty
-      || 
+      ||
       foldRequests.notEmpty
     ) &&
     // Don't let there be two requests in flight with same ID!
@@ -630,12 +630,12 @@ module mkPipelinedTagLookup #(
     !inFlightRootReqs.full &&
     (earlyRsps.notFull || inFlightRootReqs.empty) // Don't issue fresh requst if will need to retry current one next cycle anyway
   );
-    // RUNTYPE: LOCK ON FOLD 
+    // RUNTYPE: LOCK ON FOLD
     // let doFold = foldRequests.notEmpty;
 
     let doFold = False;
     let foldRootNumber = ?;
-    if (foldRequests.notEmpty) begin 
+    if (foldRequests.notEmpty) begin
       let mReq = foldRequests.first.req;
       let req_info = foldRequests.first.info;
 
@@ -644,11 +644,11 @@ module mkPipelinedTagLookup #(
 
       if (may_fold_result.v && may_fold_result.d == req_info.request_id) begin
         doFold = True;
-      end else begin 
+      end else begin
         foldRequests.deq();
         fold_cancelled.send();
       end
-    end 
+    end
 
     if (doFold) begin
       let mReq = foldRequests.first.req;
@@ -656,11 +656,11 @@ module mkPipelinedTagLookup #(
 
       mReq.transactionID = rootTransNum;
 
-      debug2("taglookup", $display( 
+      debug2("taglookup", $display(
         "<time %0t TagLookup> ", $time,
         "Sending FLUSH request: ", fshow(mReq)
       ));
-      debug2("taglookup", $display( 
+      debug2("taglookup", $display(
         "<time %0t TagLookup> ", $time,
         "Sent to root with request info: ", fshow(req_info)
       ));
@@ -668,35 +668,35 @@ module mkPipelinedTagLookup #(
       rootCache.put(mReq);
 
       inFlightRootReqs.insert(rootTransNum, req_info);
-      
+
       rootTransNum <= rootTransNum + 1;
       foldRequests.deq();
 
       // RUNTYPE: Lock on fold
       // rootStalled[2] <= False;
       mayFoldRoot.remove_all(foldRootNumber);
-    end else if (pendingRootReqs.notEmpty) begin 
+    end else if (pendingRootReqs.notEmpty) begin
       let mReq = pendingRootReqs.first.req;
       let req_info = pendingRootReqs.first.info;
 
       mReq.transactionID = rootTransNum;
 
-      debug2("taglookup", $display( 
+      debug2("taglookup", $display(
         "<time %0t TagLookup> ", $time,
         "Sending non-flush request: ", fshow(mReq)
       ));
-      debug2("taglookup", $display( 
+      debug2("taglookup", $display(
         "<time %0t TagLookup> ", $time,
         "Sent to root with request info: ", fshow(req_info)
       ));
       rootCache.put(mReq);
- 
-      debug2("taglookup", $display( 
+
+      debug2("taglookup", $display(
         "<time %0t TagLookup> ", $time,
         "inFlightRootReqs.insert(: ", fshow(rootTransNum), ", ", fshow(req_info)
       ));
       inFlightRootReqs.insert(rootTransNum, req_info);
-      
+
       rootTransNum <= rootTransNum + 1;
       pendingRootReqs.deq();
 
@@ -723,7 +723,7 @@ module mkPipelinedTagLookup #(
     CheriTransactionID, // Key type
     RequestInfo        // Data type
   ) inFlightLeafReqs <- mkSmallBag;
- 
+
 
   // Pending leaf requests
   // TODO: what size should this be!
@@ -742,11 +742,11 @@ module mkPipelinedTagLookup #(
     CheriTransactionID transID = resp.transactionID;
 
 
-    debug2("taglookup", $display( 
+    debug2("taglookup", $display(
       "<time %0t TagLookup> ", $time,
       "ROOT: resp.transactionID: ", fshow(transID)
     ));
-    debug2("taglookup", $display( 
+    debug2("taglookup", $display(
       "<time %0t TagLookup> ", $time,
       "ROOT: inFlightRootReqs(resp.transactionID): ", fshow(inFlightRootReqs.isMember(transID))
     ));
@@ -759,7 +759,7 @@ module mkPipelinedTagLookup #(
     // Tags at START of root request (note may have been overwritten if a write)
     Bit#(CheriDataWidth) rspData = resp.data.data;
 
-    // Returns tagged root tag value before operation 
+    // Returns tagged root tag value before operation
     Bool rootTag = getRootEntry(
       request_info.capNumber,
       rspData
@@ -768,11 +768,11 @@ module mkPipelinedTagLookup #(
     Bool doTagRequest = False;
     CheriMemRequest leafReq = ?;
 
-    debug2("taglookup", $display( 
+    debug2("taglookup", $display(
       "<time %0t TagLookup> ", $time,
       "Recieved root response: ", fshow(resp)
     ));
-    debug2("taglookup", $display( 
+    debug2("taglookup", $display(
       "<time %0t TagLookup> ", $time,
       "Response request info: ", fshow(request_info)
     ));
@@ -783,7 +783,7 @@ module mkPipelinedTagLookup #(
           // early 0
           doTagRequest = False;
 
-          debug2("taglookup", $display( 
+          debug2("taglookup", $display(
             "<time %0t TagLookup> ", $time,
             "Root tag was zero, no need to lookup leaf: ", fshow(resp)
           ));
@@ -792,7 +792,7 @@ module mkPipelinedTagLookup #(
           debug2("tracing", $display(
             "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
             "end ROOT | read | NO LEAF"
-          )); 
+          ));
           `endif
 
           // enqueue a 0 response
@@ -805,9 +805,9 @@ module mkPipelinedTagLookup #(
               request_id: request_info.request_id
             }
           );
-        end else begin 
+        end else begin
           // tag 1, need leaf lookup
-          debug2("taglookup", $display( 
+          debug2("taglookup", $display(
             "<time %0t TagLookup> ", $time,
             "Root tag was one, need to lookup leaf: ", fshow(resp)
           ));
@@ -816,11 +816,11 @@ module mkPipelinedTagLookup #(
           debug2("tracing", $display(
             "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
             "end ROOT | read"
-          )); 
+          ));
           debug2("tracing", $display(
             "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
             "start LEAF | read"
-          )); 
+          ));
           `endif
 
           // request next table entry
@@ -828,12 +828,12 @@ module mkPipelinedTagLookup #(
           leafReq = craftTagReadReq(leafLvl,request_info.capNumber);
         end
       end
-      Set: begin 
+      Set: begin
         // detect 0 -> 1 transition
         CheriPhyBitAddr a = getTableAddr(rootLvl,request_info.capNumber);
         Maybe#(TableLvl) needZeros = (!unpack(rspData[{a.byteAddr.byteOffset,a.bitOffset}])) ?
           tagged Valid tableDesc[rootLvl] : tagged Invalid;
-        
+
         debug2("taglookup", $display(
           "<time %0t TagLookup>", $time,
           " ROOT SET RETURNED. RootTag: ", fshow(rootTag),
@@ -841,7 +841,7 @@ module mkPipelinedTagLookup #(
           " needZeros: ", fshow(needZeros),
           " a: ", fshow(a)
         ));
-        
+
         // Do some logging!
         if (needZeros matches tagged Valid .t) begin
           debug2("taglookup", $display(
@@ -852,22 +852,22 @@ module mkPipelinedTagLookup #(
           debug2("tracing", $display(
             "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
             "end ROOT | write | ZERO LEAVES"
-          )); 
+          ));
           debug2("tracing", $display(
             "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
             "start LEAF | write | IGNORED"
-          )); 
+          ));
           `endif
-        end else begin 
+        end else begin
           `ifdef TAGCONTROLLER_BENCHMARKING
           debug2("tracing", $display(
             "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
             "end ROOT | write"
-          )); 
+          ));
           debug2("tracing", $display(
             "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
             "start LEAF | write | IGNORED"
-          )); 
+          ));
           `endif
         end
 
@@ -878,9 +878,9 @@ module mkPipelinedTagLookup #(
           request_info.newTagValues,
           request_info.enabledTags,
           needZeros
-        );        
-      end 
-      Clear: begin 
+        );
+      end
+      Clear: begin
         if (!rootTag) begin
           debug2("taglookup",
             $display(
@@ -892,9 +892,9 @@ module mkPipelinedTagLookup #(
           debug2("tracing", $display(
             "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
             "end ROOT | read | NO LEAF"
-          )); 
+          ));
           `endif
-          
+
           doTagRequest = False;
           // RUNTYPE: Lock on fold
           // // No risk of a fold so can unstall the root
@@ -915,7 +915,7 @@ module mkPipelinedTagLookup #(
           //     request_id: request_info.request_id
           //   }
           // );
-        end else begin 
+        end else begin
           debug2("taglookup",
             $display(
               "<time %0t TagLookup> found 1 at root when clearing tag, keep going down...",
@@ -926,11 +926,11 @@ module mkPipelinedTagLookup #(
           debug2("tracing", $display(
             "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
             "end ROOT | read"
-          )); 
+          ));
           debug2("tracing", $display(
             "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
             "start LEAF | write"
-          )); 
+          ));
           `endif
 
           // send next lookup (Note is write! Multilevel sends read first)
@@ -943,8 +943,8 @@ module mkPipelinedTagLookup #(
             tagged Invalid
           );
         end
-      end 
-      Fold: begin 
+      end
+      Fold: begin
         // Do nothing!
         doTagRequest = False;
 
@@ -959,12 +959,12 @@ module mkPipelinedTagLookup #(
         //     request_id: request_info.request_id
         //   }
         // );
-      end 
+      end
     endcase
 
-    if(doTagRequest) begin 
+    if(doTagRequest) begin
 
-      debug2("taglookup", $display( 
+      debug2("taglookup", $display(
         "<time %0t TagLookup> ", $time,
         "New pending leaf request: ", fshow(request_info)
       ));
@@ -982,8 +982,8 @@ module mkPipelinedTagLookup #(
   endrule
 
   rule issueLeafRequest (
-    leafCache.canPut && 
-    pendingLeafReqs.notEmpty && 
+    leafCache.canPut &&
+    pendingLeafReqs.notEmpty &&
     // Don't let there be two requests in flight with same ID!
     !inFlightLeafReqs.isMember(leafTransNum).v &&
     !inFlightLeafReqs.full
@@ -993,25 +993,25 @@ module mkPipelinedTagLookup #(
 
     mReq.transactionID = leafTransNum;
 
-    debug2("taglookup", $display( 
+    debug2("taglookup", $display(
       "<time %0t TagLookup> ", $time,
       "Sending leaf request: ", fshow(mReq)
     ));
-    debug2("taglookup", $display( 
+    debug2("taglookup", $display(
       "<time %0t TagLookup> ", $time,
       "Sent to leaf with request info: ", fshow(req_info)
     ));
     leafCache.put(mReq);
 
     inFlightLeafReqs.insert(leafTransNum, req_info);
-    
+
     leafTransNum <= leafTransNum + 1;
     pendingLeafReqs.deq();
   endrule
 
   // Leaf tag responses
   /////////////////////////////////////////////////////////////////////////////
-  
+
   // Responses only produced after reading leaf values - have priority over early
   // responses
   // RUNTYPE: limit latency
@@ -1025,11 +1025,11 @@ module mkPipelinedTagLookup #(
     CheriMemResponse resp <- leafCache.response.get();
     CheriTransactionID transID = resp.transactionID;
 
-    debug2("taglookup", $display( 
+    debug2("taglookup", $display(
       "<time %0t TagLookup> ", $time,
       "LEAF: resp.transactionID: ", fshow(transID)
     ));
-    debug2("taglookup", $display( 
+    debug2("taglookup", $display(
       "<time %0t TagLookup> ", $time,
       "LEAF: inFlightLeafReqs(resp.transactionID): ", fshow(inFlightLeafReqs.isMember(transID))
     ));
@@ -1049,7 +1049,7 @@ module mkPipelinedTagLookup #(
       rspData
     );
 
-    debug2("taglookup", $display( 
+    debug2("taglookup", $display(
       "<time %0t TagLookup> ", $time,
       "Recieved leaf response: ", fshow(resp)
     ));
@@ -1066,12 +1066,12 @@ module mkPipelinedTagLookup #(
         debug2("tracing", $display(
           "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
           "end LEAF | read"
-        )); 
+        ));
         `endif
 
         // enqueue the lookup response
         lateRsps.enq(
-          LookupResponse{  
+          LookupResponse{
             `ifdef TAGCONTROLLER_BENCHMARKING
             bench_id: request_info.bench_id,
             `endif
@@ -1080,7 +1080,7 @@ module mkPipelinedTagLookup #(
           }
         );
       end
-      Set: begin 
+      Set: begin
         `ifdef TAGCONTROLLER_BENCHMARKING
         debug2("tracing", $display(
           "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
@@ -1099,8 +1099,8 @@ module mkPipelinedTagLookup #(
         //     request_id: request_info.request_id
         //   }
         // );
-      end 
-      Clear: begin 
+      end
+      Clear: begin
 
         Bit#(CheriDataWidth) preClearedTags = getOldTagsEntry(
           request_info.capNumber,
@@ -1121,11 +1121,11 @@ module mkPipelinedTagLookup #(
           debug2("tracing", $display(
             "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
             "end leaf | write | FOLDING"
-          )); 
+          ));
           debug2("tracing", $display(
             "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
             "start root | write | IGNORED"
-          )); 
+          ));
           `endif
 
           let rootRequest = craftTagWriteReq(
@@ -1160,7 +1160,7 @@ module mkPipelinedTagLookup #(
           debug2("tracing", $display(
             "<time %0t Tracing> ", $time, fshow(request_info.bench_id), " ",
             "end LEAF | write | NO FOLD"
-          )); 
+          ));
           `endif
           // RUNTYPE: Lock on fold
           // // No risk of a fold so can unstall the root
@@ -1182,7 +1182,7 @@ module mkPipelinedTagLookup #(
           //   }
           // );
         end
-      end 
+      end
       // Never send Fold requests to leaf
     endcase
   endrule
@@ -1190,10 +1190,10 @@ module mkPipelinedTagLookup #(
 
   // Zeroing
   /////////////////////////////////////////////////////////////////////////////
-  
+
 `ifdef BLUESIM
   `define NO_TAGTABLE_ZEROING
-`endif 
+`endif
 
   // state register
   Reg#(Bool) zeros_sent <- mkReg(False);
@@ -1202,7 +1202,7 @@ module mkPipelinedTagLookup #(
   // transaction number for memory requests
   FF#(Bool,8) zero_reqs_in_flight <- mkFFBypass();
 
-  rule initialise (!zeros_sent); 
+  rule initialise (!zeros_sent);
     `ifndef NO_TAGTABLE_ZEROING
     TableLvl t = tableDesc[rootLvl];
     if (zeroAddr < unpack(pack(t.startAddr) + fromInteger(t.size))) begin
@@ -1229,7 +1229,7 @@ module mkPipelinedTagLookup #(
       // increment transaction number and address
       rootTransNum <= rootTransNum + 1;
       zeroAddr.lineNumber <= zeroAddr.lineNumber + 1;
-    end else begin 
+    end else begin
       zeros_sent <= True;
     end
     `else // NO_TAGTABLE_ZEROING
@@ -1246,7 +1246,7 @@ module mkPipelinedTagLookup #(
   endrule
 
   rule mark_init_done (
-    !init_done && 
+    !init_done &&
     zeros_sent &&
     !zero_reqs_in_flight.notEmpty
   );
@@ -1255,7 +1255,7 @@ module mkPipelinedTagLookup #(
   `endif
 
   rule debug;
-    debug2("taglookup", $display( 
+    debug2("taglookup", $display(
       "<time %0t TagLookup> ", $time,
       "DEBUG:",
       " rootCache.canPut: ", fshow(rootCache.canPut),
@@ -1274,7 +1274,7 @@ module mkPipelinedTagLookup #(
   interface Slave cache;
     interface CheckedPut request;
       method Bool canPut() = (
-        pendingRootReqs.notFull && 
+        pendingRootReqs.notFull &&
         current_ops_in_flight < `TagOpsInFlight &&
         init_done
       );
@@ -1302,7 +1302,7 @@ module mkPipelinedTagLookup #(
             tags: tagged Covered lateRsps.first().tags,
             request_id: lateRsps.first().request_id
           };
-        end else begin 
+        end else begin
           // Use response from root cache
           return CheriTagResponse{
             `ifdef TAGCONTROLLER_BENCHMARKING
@@ -1315,7 +1315,7 @@ module mkPipelinedTagLookup #(
       endmethod
       method ActionValue#(CheriTagResponse) get() if (earlyRsps.notEmpty || lateRsps.notEmpty());
         CheriTagResponse tr = ?;
-      
+
         if (lateRsps.notEmpty()) begin
           // Use response from leaf cache
           tr = CheriTagResponse{
@@ -1331,7 +1331,7 @@ module mkPipelinedTagLookup #(
             "<time %0t TagLookup> ", $time,
             "got valid lookup response LATE ", fshow(tr)
           ));
-        end else begin 
+        end else begin
           // Use response from root cache
           tr =  CheriTagResponse{
             `ifdef TAGCONTROLLER_BENCHMARKING
@@ -1354,7 +1354,7 @@ module mkPipelinedTagLookup #(
       endmethod
     endinterface
   endinterface
-        
+
   // Interface the tag controller uses to connect tag lookup to DRAM
   interface Master memory;
     interface request = toUGCheckedGet(ff2fifof(backupMemoryReqs));
