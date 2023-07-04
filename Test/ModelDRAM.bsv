@@ -54,14 +54,14 @@ import AXI_Helpers  :: *;
 module mkModelDRAMGeneric#
          ( Integer maxOutstandingReqs         // Max outstanding requests
          , RegFile# (Bit#(wordAddrWidth)
-                   , Bit#(128)
+                   , Bit#(Wd_Data)
                    ) ram                      // For storage
          )
-         (AXI4_Slave#(8, addrWidth, 128, 0, 0, 0, 0, 0))
+         (AXI4_Slave#(8, addrWidth, Wd_Data, 0, 0, 0, 0, 0))
          provisos (Add#(wordAddrWidth, 4, addrWidth)
          );
 
-  AXI4_Shim#(8, addrWidth, 128, 0, 0, 0, 0, 0) shim <- mkAXI4Shim();
+  AXI4_Shim#(8, addrWidth, Wd_Data, 0, 0, 0, 0, 0) shim <- mkAXI4Shim();
 
   // Slave interface
   FIFOF#(DRAMReq#(8, addrWidth)) preReqFifo <- mkSizedFIFOF(maxOutstandingReqs);
@@ -142,7 +142,7 @@ module mkModelDRAMGeneric#
     Bit#(wordAddrWidth) wordAddr = truncate(addr>>4);
 
     // Data lookup
-    Bit#(128) data = ram.sub(wordAddr);
+    Bit#(Wd_Data) data = ram.sub(wordAddr);
 
     // Defualt response
     DRAMRsp#(8) resp = ?;
@@ -204,9 +204,9 @@ endmodule
 // Version using a standard register file
 module mkModelDRAM#
          ( Integer maxOutstandingReqs )       // Max outstanding requests
-         (AXI4_Slave#(8, addrWidth, 128, 0, 0, 0, 0, 0))
+         (AXI4_Slave#(8, addrWidth, Wd_Data, 0, 0, 0, 0, 0))
          provisos (Add#(wordAddrWidth, 4, addrWidth));
-  RegFile#(Bit#(wordAddrWidth), Bit#(128)) ram <- mkRegFileFull;
+  RegFile#(Bit#(wordAddrWidth), Bit#(Wd_Data)) ram <- mkRegFileFull;
   let dram <- mkModelDRAMGeneric(maxOutstandingReqs, ram);
   return dram;
 endmodule
@@ -215,9 +215,9 @@ endmodule
 // the advantage of being efficiently resettable to a predefined state.
 module mkModelDRAMAssoc#
          ( Integer maxOutstandingReqs )         // Max outstanding requests
-         (AXI4_Slave#(8, addrWidth, 128, 0, 0, 0, 0, 0))
+         (AXI4_Slave#(8, addrWidth, Wd_Data, 0, 0, 0, 0, 0))
          provisos (Add#(wordAddrWidth, 4, addrWidth));
-  RegFile#(Bit#(wordAddrWidth), Bit#(128)) ram <- mkRegFileAssoc;
+  RegFile#(Bit#(wordAddrWidth), Bit#(Wd_Data)) ram <- mkRegFileAssoc;
   let dram <- mkModelDRAMGeneric(maxOutstandingReqs, ram);
   return dram;
 endmodule

@@ -36,9 +36,9 @@ BLUEBASICSDIR = $(BLUESTUFFDIR)/BlueBasics
 BLUEUTILSDIR = $(BLUESTUFFDIR)/BlueUtils
 BLUESTUFF_DIRS = $(BLUESTUFFDIR):$(BLUEAXI4DIRS):$(BLUEBASICSDIR):$(BLUEUTILSDIR):$(BLUESTUFFDIR)/Stratix10ChipID
 
-BSVPATH = +:$(BLUESTUFF_DIRS):Test:Test/bluecheck:TagController:TagController/CacheCore:Benchmark
+BSVPATH = +:$(BLUESTUFF_DIRS):Test:Test/bluecheck:TagController:TagController/CacheCore:Benchmark:$(CURDIR)/../../src_Core/Core/:$(CURDIR)/../../src_Core/ISA/:$(CURDIR)/../cheri-cap-lib/
 
-BSCFLAGS = -p $(BSVPATH) -D MEM128 -D CAP128 -D BLUESIM
+BSCFLAGS = -p $(BSVPATH) -D MEM512 -D CAP128 -D BLUESIM
 CAPSIZE = 128
 TAGS_STRUCT = 0 128
 TAGS_ALIGN = 16
@@ -78,7 +78,7 @@ all: simTest
 SIMTEST_TOPMODULE = mkTestMemTop
 simTest: $(TESTSDIR)/TestMemTop.bsv TagController/TagTableStructure.bsv
 	mkdir -p $(OUTPUTDIR)/$@-info $(BDIR) $(SIMDIR)
-	$(BSC) -info-dir $(OUTPUTDIR)/$@-info -simdir $(SIMDIR) $(BSCFLAGS) -sim -g $(SIMTEST_TOPMODULE) -u $<
+	$(BSC) -info-dir $(OUTPUTDIR)/$@-info -simdir $(SIMDIR) $(BSCFLAGS) -sim -g $(SIMTEST_TOPMODULE)  -steps-max-intervals 100000000 -u $<
 	CC=$(CC) CXX=$(CXX) $(BSC) -simdir $(SIMDIR) $(BSCFLAGS) -sim -e $(SIMTEST_TOPMODULE) -o $(OUTPUTDIR)/$@
 
 TOFILE_TOPMODULE = mkWriteTest

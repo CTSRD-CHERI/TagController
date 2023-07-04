@@ -10,12 +10,12 @@ import Connectable::* ;
 import Debug::*;
 
 typedef 32 AddressLength;
-typedef 128 CacheLineLength;
+typedef Wd_Data CacheLineLength;
 typedef 1 TagsPerLine;
 typedef `BenchmarkIDWidth AXI_id_width;
 
 // Line stride is BYTES
-// `define LINE_STRIDE 128 // 8 * 128bit capabilities
+// `define LINE_STRIDE Wd_Data // 8 * 128bit capabilities
 `define LINE_STRIDE 16 // 1 * 128bit capabilities
 
 `define NORMAL_INPUT_FILE "dramtraces/fromFile_input.dat"
@@ -24,7 +24,7 @@ typedef `BenchmarkIDWidth AXI_id_width;
 typedef struct {
   Bit#(8) op_type; // 0 if Read, 1 if Write, 2 if End of initialising, 3 if end of file
   Bit#(AddressLength) address; // 64 bit address
-  Bit#(CacheLineLength) data; // 128 bit cache lines
+  Bit#(CacheLineLength) data; // Wd_Data bit cache lines
   Bit#(8) tags; // tag bits per cache line (round up to 1 byte)
 } FileMemoryOp
   deriving (Bits, Eq, FShow);
@@ -135,13 +135,13 @@ module mkReadTest (Empty);
             $fclose ( file_handler ) ;
             $finish(0);
         end
-        
+
         $display("read from file: ", fshow(op));
     endrule
 
 endmodule
 
-  
+
 
 (* synthesize *)
 module mkRequestsFromFile (Empty);
@@ -154,7 +154,7 @@ module mkRequestsFromFile (Empty);
         reset_by r.new_rst
     );
 
-    
+
     // What actually does the requests
     // RUNTYPE: ALL NULL
     // 4 bit id width
@@ -162,13 +162,13 @@ module mkRequestsFromFile (Empty);
         False, // Start off NOT connected to DRAM
         reset_by r.new_rst
     );
-    
+
     // TagControllerAXI#(4,AddressLength,CacheLineLength) tagcontroller_main <- mkNullTagControllerAXI(
     //     False, // Start off NOT connected to DRAM
     //     reset_by r.new_rst
     // );
-    
-    
+
+
     // Initialises with alternatign 1s and 0s
     AXI4_Slave#(
         SizeOf#(MemTypesCHERI::ReqId), AddressLength, CacheLineLength, 0, 0, 0, 0, 0
@@ -177,14 +177,14 @@ module mkRequestsFromFile (Empty);
     // Only the one with isInUse set will consume DRAM responses
     mkConnection(tagcontroller_initialiser.master, dram, reset_by r.new_rst);
     mkConnection(tagcontroller_main.master, dram, reset_by r.new_rst);
-   
+
     mkFileToTagController(
         tagcontroller_initialiser,
         tagcontroller_main,
         reset_by r.new_rst
     );
 endmodule
-    
+
 module mkFileToTagController#(
     TagControllerAXI#(
         AXI_id_width,
@@ -197,11 +197,11 @@ module mkFileToTagController#(
         CacheLineLength
     ) tc_main
 ) (Empty);
-    
+
     Reg#(File) file_handler <- mkReg(?);
     Reg#(Bool) opened <- mkReg(False);
     Reg#(Bool) done <- mkReg(False);
-    
+
     Reg#(Bit#(64)) simulationTime <- mkReg(0);
 
     // What id to use for next op
@@ -235,7 +235,7 @@ module mkFileToTagController#(
 
     rule open_file (!opened);
         Bool use_pipe <- $test$plusargs("pipe");
-        if (use_pipe) begin 
+        if (use_pipe) begin
             File file_obj <- $fopen(`PIPED_INPUT_FILE, "r");
             file_handler <= file_obj;
             debug2("benchmark", $display("<time %0t Benchmark> File opened: ", $time, fshow(`PIPED_INPUT_FILE)));
@@ -274,7 +274,7 @@ module mkFileToTagController#(
         // Dodgy but sound way of detecting when got to end of the file!
         // op_type should always be 0 (read) or 1 (write) but at end of the file
         // will never read this if at end of file.
-        if (op.op_type < 3) 
+        if (op.op_type < 3)
         begin
             debug2("benchmark", $display("<time %0t Benchmark> Read from file:", $time, fshow(op)));
             sourceFileOpsFIFO.enq(op);
@@ -283,8 +283,8 @@ module mkFileToTagController#(
             debug2("benchmark", $display("<time %0t Benchmark> Reached end of file!", $time));
             $fclose ( file_handler );
             done <= True;
-        end else 
-        begin 
+        end else
+        begin
             $display("EEK!!! Read invalid op: ", fshow(op));
             $fclose ( file_handler );
             done <= True;
@@ -304,18 +304,18 @@ module mkFileToTagController#(
             let addr = next_op.address;
 
             // this is a read operation
-            
+
             AXI4_ARFlit#(AXI_id_width, AddressLength, 1) addrReq = defaultValue;
-            
+
             addrReq.arid = truncate(idCount);
             idCount <= idCount + 1;
             addrReq.araddr = addr;
             addrReq.arlen = 0; //TODO (what size to put here?)
             addrReq.arsize = 16; //TODO (what size to put here?)
             addrReq.arcache = 4'b1011; //TODO (what to put here?)
-            
+
             debug2("benchmark", $display("<time %0t Benchmark> Sending Load: ", $time, fshow(addrReq)));
-            
+
             if (use_main_axi) begin
                 debug2("tracing", $display(
                     "<time %0t Tracing> ", $time, fshow(idCount), " ",
@@ -328,7 +328,7 @@ module mkFileToTagController#(
 
             outstandingFIFO.enq(next_op);
             sourceFileOpsFIFO.deq();
-        end 
+        end
         else if (next_op.op_type == 1)
         begin
             let addr = next_op.address;
@@ -352,8 +352,8 @@ module mkFileToTagController#(
             end
 
             currentAxiSlave.aw.put(addrReq);
-    
-            AXI4_WFlit#(128, 1) dataReq = defaultValue;
+
+            AXI4_WFlit#(Wd_Data, 1) dataReq = defaultValue;
 
             dataReq.wdata = data;
             dataReq.wuser = truncate(tags);
@@ -415,10 +415,10 @@ module mkFileToTagController#(
         debug2("benchmark", $display("<time %0t Benchmark> DEBUG: read resp from init ", $time));
     endrule
     */
-    
+
     rule endBenchmark (
         done && // All operations read out of file
-        use_main_axi && // Have switched over to main tag controller 
+        use_main_axi && // Have switched over to main tag controller
         !outstandingFIFO.notEmpty && // Not waiting for any responses
         !sourceFileOpsFIFO.notEmpty // No requests read from file but not sent to controller
     );
@@ -426,4 +426,3 @@ module mkFileToTagController#(
     endrule
 
 endmodule
-

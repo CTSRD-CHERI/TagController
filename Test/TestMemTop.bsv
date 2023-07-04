@@ -51,6 +51,8 @@ import BlueCheck::*;
 import StmtFSM::*;
 import DUT::*;
 import TagControllerAXI::*;
+import Fabric_Defs::*;
+import MemTypesCHERI:: *;
 
 (* synthesize *)
 module mkTestMemTop (Empty);
@@ -64,16 +66,16 @@ module [Module] mkTestMemTopSingle (Empty);
 
   // Implementation
   //AXITagShim#(0,32,128,0) dut <- mkDummyDUT(reset_by r.new_rst);
-  TagControllerAXI#(32,32,128) dut <- mkTagControllerAXI(
+  TagControllerAXI#(4,32,TMul#(CheriBusBytes, 8)) dut <- mkTagControllerAXI(
     `ifdef TAGCONTROLLER_BENCHMARKING
     True, // Connect to DRAM at start
-    `endif 
+    `endif
     reset_by r.new_rst
   );
   // Instantiate DRAM model
   // (max oustanding requests = 4)
   // AXI4_Slave#(8, 32, 128, 0, 0, 0, 0, 0) dram <- mkModelDRAMAssoc(4, reset_by r.new_rst);
-  AXI4_Slave#(SizeOf#(MemTypesCHERI::ReqId), 32, 128, 0, 0, 0, 0, 0) dram <- BenchModelDRAM::mkModelDRAMAssoc(16, 2, reset_by r.new_rst);
+  AXI4_Slave#(SizeOf#(MemTypesCHERI::ReqId), 32, Wd_Data, 0, 0, 0, 0, 0) dram <- BenchModelDRAM::mkModelDRAMAssoc(16, 2, reset_by r.new_rst);
   // Connect core to DRAM
   mkConnection(dut.master, dram, reset_by r.new_rst);
   // Create test client for DUT

@@ -51,6 +51,8 @@ import BenchRegFileAssoc :: *;
 import BenchRegFileHash  :: *;
 import BlueAXI4     :: *;
 import AXI_Helpers  :: *;
+import MemTypesCHERI:: *;
+import Fabric_Defs  :: *;
 
 `define LATENCY 32
 
@@ -58,14 +60,14 @@ module mkModelDRAMGeneric#
          ( Integer maxOutstandingReqs         // Max outstanding requests
          , Integer latency                    // Latency (cycles)
          , RegFile# (Bit#(wordAddrWidth)
-                   , Bit#(128)
+                   , Bit#(Wd_Data)
                    ) ram                      // For storage
          )
-         (AXI4_Slave#(SizeOf#(MemTypesCHERI::ReqId), addrWidth, 128, 0, 0, 0, 0, 0))
+         (AXI4_Slave#(SizeOf#(MemTypesCHERI::ReqId), addrWidth, Wd_Data, 0, 0, 0, 0, 0))
          provisos (Add#(wordAddrWidth, 4, addrWidth)
          );
 
-  AXI4_Shim#(SizeOf#(MemTypesCHERI::ReqId), addrWidth, 128, 0, 0, 0, 0, 0) shim <- mkAXI4ShimBypassFIFOF();
+  AXI4_Shim#(SizeOf#(MemTypesCHERI::ReqId), addrWidth, Wd_Data, 0, 0, 0, 0, 0) shim <- mkAXI4ShimBypassFIFOF();
 
   // Slave interface
   FIFOF#(DRAMReq#(SizeOf#(MemTypesCHERI::ReqId), addrWidth)) preReqFifo <- mkSizedFIFOF(maxOutstandingReqs);
@@ -155,7 +157,7 @@ module mkModelDRAMGeneric#
     Bit#(wordAddrWidth) wordAddr = truncate(addr>>4);
 
     // Data lookup
-    Bit#(128) data = ram.sub(wordAddr);
+    Bit#(Wd_Data) data = ram.sub(wordAddr);
 
     // Defualt response
     DRAMRsp#(SizeOf#(MemTypesCHERI::ReqId)) resp = ?;
@@ -166,9 +168,9 @@ module mkModelDRAMGeneric#
       tagged Write .write:
         begin
           // Perform write
-          Vector#(16, Bit#(8)) bytes    = unpack(truncate(data));
-          Vector#(16, Bit#(8)) newBytes = unpack(truncate(write.w.wdata));
-          for (Integer i = 0; i < valueOf(16); i=i+1)
+          Vector#(CheriBusBytes, Bit#(8)) bytes    = unpack(truncate(data));
+          Vector#(CheriBusBytes, Bit#(8)) newBytes = unpack(truncate(write.w.wdata));
+          for (Integer i = 0; i < valueOf(CheriBusBytes); i=i+1)
             if (write.w.wstrb[i]==1'b1)
               bytes[i] = newBytes[i];
           ram.upd(wordAddr, pack(bytes));
@@ -213,7 +215,7 @@ module mkModelDRAMGeneric#
     if (resp matches tagged Valid .r) begin
       respFifo.enq(r);
       debug2("dram", $display("<time %0t DRAM> drained response: %d ", $time, fshow(resp)));
-    end else begin 
+    end else begin
       debug2("dram", $display("<time %0t DRAM> drained invalid", $time));
     end
     preRespFifo.deq;
@@ -242,9 +244,9 @@ module mkModelDRAM#
          ( Integer maxOutstandingReqs         // Max outstanding requests
          , Integer latency                    // Latency (cycles)
          )
-         (AXI4_Slave#(SizeOf#(MemTypesCHERI::ReqId), addrWidth, 128, 0, 0, 0, 0, 0))
+         (AXI4_Slave#(SizeOf#(MemTypesCHERI::ReqId), addrWidth, Wd_Data, 0, 0, 0, 0, 0))
          provisos (Add#(wordAddrWidth, 4, addrWidth));
-  RegFile#(Bit#(wordAddrWidth), Bit#(128)) ram <- mkRegFileFull;
+  RegFile#(Bit#(wordAddrWidth), Bit#(Wd_Data)) ram <- mkRegFileFull;
   let dram <- mkModelDRAMGeneric(maxOutstandingReqs, latency, ram);
   return dram;
 endmodule
@@ -255,9 +257,9 @@ module mkModelDRAMAssoc#
          ( Integer maxOutstandingReqs         // Max outstanding requests
          , Integer latency                    // Latency (cycles)
          )
-         (AXI4_Slave#(SizeOf#(MemTypesCHERI::ReqId), addrWidth, 128, 0, 0, 0, 0, 0))
+         (AXI4_Slave#(SizeOf#(MemTypesCHERI::ReqId), addrWidth, Wd_Data, 0, 0, 0, 0, 0))
          provisos (Add#(wordAddrWidth, 4, addrWidth));
-  RegFile#(Bit#(wordAddrWidth), Bit#(128)) ram <- mkRegFileAssoc;
+  RegFile#(Bit#(wordAddrWidth), Bit#(Wd_Data)) ram <- mkRegFileAssoc;
   let dram <- mkModelDRAMGeneric(maxOutstandingReqs, latency, ram);
   return dram;
 endmodule

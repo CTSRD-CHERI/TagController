@@ -52,6 +52,8 @@ import SourceSink   :: *;
 import BlueAXI4     :: *;
 import Bag          :: *;
 import VnD          :: *;
+import Fabric_Defs  :: *;
+import MemTypesCHERI:: *;
 
 // This module has been developed for the purpose of testing the
 // (shared) memory sub-system.  It aims to provide a neat Bluespec
@@ -99,9 +101,9 @@ typedef union tagged {
   deriving (Bits, Eq, FShow);
 
 typedef struct {
-  Bool isLoad;           // True for load, False for store to data mem
+  Bit#(idWidth) id;      // ID of the next response (in order)
   Bit#(8) lowAddr;       // Lower 8-bits of address
-} OutstandingMemInstr
+} OutstandingMemInstr#(numeric type idWidth)
   deriving (Bits);
 
 // How to map an Addr to a 24-bit physical address offset
@@ -120,11 +122,11 @@ endfunction
 
 // Functions ==================================================================
 
-// Convert from Data to 64-bit data
-function Tuple2#(Bit#(1), Bit#(128)) fromData(Data x) = tuple2(x[16],zeroExtend(x));
+// Convert from Data to bus width
+function Tuple2#(Bit#(CapsPerFlit), Bit#(Wd_Data)) fromData(Data x) = tuple2(truncateLSB(x),zeroExtend(x));
 
-// Convert from 64-bit data to Data
-function Data toData(Bit#(1) t, Bit#(128) d) = {t, d[15:0]};
+// Convert from bus width to Data
+function Data toData(Bit#(CapsPerFlit) t, Bit#(Wd_Data) d) = {t, truncate(d)};
 
 // Show addresses
 instance FShow#(Addr);
@@ -168,56 +170,37 @@ endinstance
 
 // Memory client module =======================================================
 
-module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, 1, 0, 1, 1) axiSlave) (MemoryClient)
-  provisos (Add#(a__, addrWidth, 64), Add#(b__, idWidth, 32));
+module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, Wd_Data, 0, CapsPerFlit, 0, 1, CapsPerFlit) axiSlave) (MemoryClient)
+  provisos (Add#(a__, addrWidth, 64), Add#(b__, idWidth, 8));
 
   // Response FIFO
-  // FIFOF#(MemoryClientResponse) responseFIFO <- mkSizedFIFOF(4);
-  Bag#(4, Bit#(idWidth), MemoryClientResponse) responseBag <- mkSmallBag;
-  FIFOF#(Bit#(idWidth)) requestIDOrder <- mkSizedFIFOF(16);
+  FIFOF#(MemoryClientResponse) responseFIFO <- mkFIFOF;
+  Vector#(TExp#(idWidth), FIFOF#(MemoryClientResponse)) responseFifos <- replicateM(mkUGFIFOF);
 
-  let next_resp_id = requestIDOrder.first;
-  let can_get_resp = responseBag.isMember(next_resp_id).v;
+  // FIFO storing details of outstanding loads
+  FIFOF#(OutstandingMemInstr#(idWidth)) outstandingFIFO <- mkSizedFIFOF(16);
 
-  // FIFO storing details of outstanding loads/stores
-  FIFOF#(OutstandingMemInstr) outstandingFIFO <- mkSizedFIFOF(4);
-
-  Reg#(Bit#(idWidth)) idCount <- mkReg(0);
+  Reg#(Bit#(8)) idCount <- mkReg(0);
 
   // Address mapping
   Reg#(AddrMap) addrMap <- mkRegU;
 
-  // Read responses from tag controller into buffers
-  // NOTE: Tag controller might respond out of order!!
-  // TODO: confirm that write -> read order is preserved for same address!
-  FIFOF#(AXI4_Types::AXI4_BFlit#(idWidth, 0)) writeResponses <- mkSizedFIFOF(4);
-  FIFOF#(AXI4_Types::AXI4_RFlit#(idWidth, 128, 1)) readResponses <- mkSizedFIFOF(4);
-
-  rule emptyWriteResponses(axiSlave.b.canPeek);
-    let b <- get(axiSlave.b);
-    writeResponses.enq(b);
-    debug2("memoryclient", $display("<time %0t MemoryClient> Write response received: ", $time, fshow(b)));
-  endrule
-  rule emptyReadResponses(axiSlave.r.canPeek);
-    let r <- get(axiSlave.r);
-    readResponses.enq(r);
-    debug2("memoryclient", $display("<time %0t MemoryClient> Read response received: ", $time, fshow(r)));
-  endrule
-
-  Bool nextIsLoad = outstandingFIFO.first.isLoad;
   // Fill response FIFO
-  rule handleWriteResponses (!nextIsLoad && writeResponses.notEmpty);
-    let b = writeResponses.first;
-    writeResponses.deq();
+  rule handleWriteResponses (axiSlave.b.canPeek);
+    let b <- get(axiSlave.b);
+    $display("MemoryClient handleWriteResponse: ", fshow(b));
     outstandingFIFO.deq;
-    debug2("memoryclient", $display("<time %0t MemoryClient> Write response consumed: ", $time, fshow(b)));
   endrule
-  rule handleReadResponses (nextIsLoad && readResponses.notEmpty);
-    let r = readResponses.first;
-    readResponses.deq();
+  rule handleReadResponses (axiSlave.r.canPeek);
+    let r <- get(axiSlave.r);
+    $display("MemoryClient handleReadResponses: ", fshow(r));
+    responseFifos[r.rid].enq(DataResponse(toData(r.ruser, r.rdata)));
+  endrule
+  FIFOF#(MemoryClientResponse) nextResponseFIFO = responseFifos[outstandingFIFO.first.id];
+  rule forwardReadResponseInOrder(nextResponseFIFO.notEmpty);
+    responseFIFO.enq(nextResponseFIFO.first);
+    nextResponseFIFO.deq;
     outstandingFIFO.deq;
-    debug2("memoryclient", $display("<time %0t MemoryClient> Read response consumed: ", $time, fshow(r)));
-    responseBag.insert(r.rid, DataResponse(toData(r.ruser, r.rdata)));
   endrule
 
   // rule debug;
@@ -248,13 +231,12 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, 1, 0, 1, 1) axiSl
       addrReq.arcache = 4'b1011;
 
       axiSlave.ar.put(addrReq);
-      requestIDOrder.enq(addrReq.arid);
       debug2("memoryclient", $display("<time %0t MemoryClient> Load issued: ", $time, fshow(addrReq)));
       // debug2("memoryclient", $display("<time %0t MemoryClient> idWidth: ", $time, fshow(idWidth)));
 
 
       outstandingFIFO.enq(OutstandingMemInstr{
-        isLoad: True,
+        id: truncate(idCount),
         lowAddr: fullAddr[7:0]
       });
     endaction;
@@ -272,16 +254,11 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, 1, 0, 1, 1) axiSl
       addrReq.awaddr = truncate(fullAddr);
       axiSlave.aw.put(addrReq);
 
-      AXI4_WFlit#(128, 1) dataReq = defaultValue;
+      AXI4_WFlit#(Wd_Data, CapsPerFlit) dataReq = defaultValue;
       match {.t, .d} = fromData(data);
       dataReq.wuser = t;
       dataReq.wdata = d;
       axiSlave.w.put(dataReq);
-
-      outstandingFIFO.enq(OutstandingMemInstr{
-        isLoad: False,
-        lowAddr: fullAddr[7:0]
-      });
     endaction;
 
   // Load value at address into register
@@ -294,19 +271,14 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, 1, 0, 1, 1) axiSl
     storeGeneric(data, addr);
   endmethod
 
-  method ActionValue#(MemoryClientResponse) getResponse if (can_get_resp);
-    let next_resp = responseBag.isMember(next_resp_id).d;
-    requestIDOrder.deq;
-    responseBag.remove(next_resp_id);
-    return next_resp;
-  endmethod
+  method ActionValue#(MemoryClientResponse) getResponse =
+    get(responseFIFO);
 
-  method Bool canGetResponse = can_get_resp;
+  method Bool canGetResponse = responseFIFO.notEmpty;
 
   // Check if all outstanding operations have been consumed
   method Bool done = !outstandingFIFO.notEmpty &&
-                    //  !responseFIFO.notEmpty;
-                     responseBag.empty;
+                     !responseFIFO.notEmpty;
 
 //   // Set mapping from Addr values to physical address
   method Action setAddrMap(AddrMap map);
@@ -320,7 +292,7 @@ endmodule
 module mkMemoryClientGolden (MemoryClient);
 
   // Response FIFO
-  FIFOF#(MemoryClientResponse) responseFIFO <- mkSizedFIFOF(4);
+  FIFOF#(MemoryClientResponse) responseFIFO <- mkSizedFIFOF(16);
 
 
   // Golden memory unit (one mem per dword)
