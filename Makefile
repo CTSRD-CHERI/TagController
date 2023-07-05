@@ -58,9 +58,9 @@ BSCFLAGS += -sched-dot
 BSCFLAGS += -show-range-conflict
 #BSCFLAGS += -show-rule-rel \* \*
 #BSCFLAGS += -steps-warn-interval n
-BSCFLAGS += -D CheriMasterIDWidth=4
-BSCFLAGS += -D CheriTransactionIDWidth=32
-BSCFLAGS += -D BenchmarkIDWidth=32 # Must be less than or equal to CheriTransactionIDWidth
+BSCFLAGS += -D CheriMasterIDWidth=3
+BSCFLAGS += -D CheriTransactionIDWidth=5
+BSCFLAGS += -D BenchmarkIDWidth=4 # Must be less than or equal to CheriTransactionIDWidth
 # BSCFLAGS += +RTS -K33554432 -RTS
 BSCFLAGS += +RTS -K512M -RTS
 BSCFLAGS += -suppress-warnings T0127:S0080 # no orphan typeclass warning

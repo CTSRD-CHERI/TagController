@@ -84,6 +84,9 @@ typedef struct {
   RequestInfo info;
 } ProcessedRequest deriving (Bits, FShow);
 
+typedef TLog#(CheriDataWidth) CheriBusBitOffset;
+Integer cheriBusBitOffset = valueof(CheriBusBitOffset);
+
 // mkTagLookup module definition
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -180,11 +183,11 @@ module mkPipelinedTagLookup #(
   FF#(CheriMemResponse, 2) rootBackupRsps <- mkUGFFDebug("TagLookup_rootBackupRsps");
 
   `ifdef SMALL_TAG_CACHE
-  CacheCore#(1, TSub#(Indices,2), CacheOpsInFlight)  rootCache <- mkCacheCore(
+  CacheCore#(2, TSub#(Indices,2), 2)  rootCache <- mkCacheCore(
   `else
-  CacheCore#(1, TSub#(Indices,4), CacheOpsInFlight)  rootCache <- mkCacheCore(
+  CacheCore#(2, TSub#(Indices,4), 2)  rootCache <- mkCacheCore(
   `endif
-    1, WriteThrough, RespondAll, TCache,
+    1, WriteAllocate, RespondAll, TCache,
     zeroExtend(rootBackupReqs.remaining()), ff2fifof(rootBackupReqs), ff2fifof(rootBackupRsps));
 
   // Simply stuff "True" into commits because we never cancel transactions here
@@ -205,11 +208,11 @@ module mkPipelinedTagLookup #(
   FF#(CheriMemResponse, 2) leafBackupRsps <- mkUGFFDebug("TagLookup_leafBackupRsps");
 
   `ifdef SMALL_TAG_CACHE
-  CacheCore#(1, TSub#(Indices,2), CacheOpsInFlight)  leafCache <- mkCacheCore(
+  CacheCore#(2, TSub#(Indices,2), 2)  leafCache <- mkCacheCore(
   `else
-  CacheCore#(1, TSub#(Indices,4), CacheOpsInFlight)  leafCache <- mkCacheCore(
+  CacheCore#(2, TSub#(Indices,4), 2)  leafCache <- mkCacheCore(
   `endif
-    1, WriteThrough, RespondAll, TCache,
+    1, WriteAllocate, RespondAll, TCache,
     zeroExtend(leafBackupReqs.remaining()), ff2fifof(leafBackupReqs), ff2fifof(leafBackupRsps));
 
   // Simply stuff "True" into commits because we never cancel transactions here
@@ -639,7 +642,7 @@ module mkPipelinedTagLookup #(
       let mReq = foldRequests.first.req;
       let req_info = foldRequests.first.info;
 
-      foldRootNumber = req_info.capNumber >> tableDesc[rootLvl].shiftAmnt;
+      foldRootNumber = req_info.capNumber >> cheriBusBitOffset;
       let may_fold_result = mayFoldRoot.isMember(foldRootNumber);
 
       if (may_fold_result.v && may_fold_result.d == req_info.request_id) begin
@@ -702,7 +705,7 @@ module mkPipelinedTagLookup #(
 
       // RUNTYPE: Lock on fold
       // if (req_info.opType == Clear) rootStalled[2] <= True;
-      let req_root_number = req_info.capNumber >> tableDesc[rootLvl].shiftAmnt;
+      let req_root_number = req_info.capNumber >> cheriBusBitOffset;
 
       // Declare that this request may want to fold this root tag
       if (req_info.opType == Clear) mayFoldRoot.insert(req_root_number, req_info.request_id);
@@ -900,7 +903,7 @@ module mkPipelinedTagLookup #(
           // // No risk of a fold so can unstall the root
           // rootStalled[0] <= False;
           mayFoldRoot.remove_after_root(
-            request_info.capNumber >> tableDesc[rootLvl].shiftAmnt,
+            request_info.capNumber >> cheriBusBitOffset,
             request_info.request_id
           );
 
@@ -1166,7 +1169,7 @@ module mkPipelinedTagLookup #(
           // // No risk of a fold so can unstall the root
           // rootStalled[1] <= False;
           mayFoldRoot.remove_after_leaf(
-            request_info.capNumber >> tableDesc[rootLvl].shiftAmnt,
+            request_info.capNumber >> cheriBusBitOffset,
             request_info.request_id
           );
 

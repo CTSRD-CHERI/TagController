@@ -217,8 +217,10 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, Wd_Data, 0, CapsPerFlit, 
     outstandingFIFO.deq;
   endrule
 
-  // rule debug;
-  //   $display("DEBUG: ", $time, "> ",
+  //rule debug;
+  //   $write("DEBUG: ", $time, "> ");
+  //   for (Integer i = 0; i < valueOf(TExp#(idWidth)); i = i + 1) $write("addrs[%d].notFull:%d ", i, addrFifos[i].notFull);
+  //   $display(" and done ");
   //     "responseFIFO.notFull: ", responseFIFO.notFull, " | ",
   //     "responseFIFO.notEmpty: ", responseFIFO.notEmpty, " | ",
   //     "outstandingFIFO.notFull: ", outstandingFIFO.notFull, " | ",
@@ -228,12 +230,13 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, Wd_Data, 0, CapsPerFlit, 
   //     "r.canPeek: ", axiSlave.r.canPeek, " | ",
   //     ""
   //   );
-  // endrule
+  //endrule
 
   FIFO#(TestReq) reqQue <- mkBypassFIFO;
   function Bool matchReqQue(FIFOF#(Addr) f) = (f.notEmpty && f.first == reqQue.first.addr);
+  FIFOF#(Addr) nextAddrFIFO = addrFifos[idCount];
   Bool blockNewReq = any(matchReqQue,addrFifos);
-  rule loadGeneric(!blockNewReq && reqQue.first.isLoad);
+  rule loadGeneric(reqQue.first.isLoad && !blockNewReq && nextAddrFIFO.notFull);
     let r <- get(reqQue);
     Bit#(64) fullAddr = fromAddr(r.addr, addrMap);
 
@@ -250,16 +253,15 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, Wd_Data, 0, CapsPerFlit, 
     debug2("memoryclient", $display("<time %0t MemoryClient> Load issued: ", $time, fshow(addrReq), " id: ", fshow(idCount)));
     // debug2("memoryclient", $display("<time %0t MemoryClient> idWidth: ", $time, fshow(idWidth)));
 
-
     outstandingFIFO.enq(OutstandingMemInstr{
       id: idCount,
       lowAddr: fullAddr[7:0]
     });
 
-    addrFifos[idCount].enq(r.addr);
+    nextAddrFIFO.enq(r.addr);
   endrule
 
-  rule storeGeneric(!blockNewReq && !reqQue.first.isLoad);
+  rule storeGeneric(!reqQue.first.isLoad && !blockNewReq && nextAddrFIFO.notFull);
     let r <- get(reqQue);
     Bit#(64) fullAddr = fromAddr(r.addr, addrMap);
 
@@ -278,7 +280,7 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, Wd_Data, 0, CapsPerFlit, 
     dataReq.wdata = d;
     axiSlave.w.put(dataReq);
     debug2("memoryclient", $display("<time %0t MemoryClient> Store issued: ", $time, fshow(addrReq), " ", fshow(dataReq)));
-    addrFifos[idCount].enq(r.addr);
+    nextAddrFIFO.enq(r.addr);
   endrule
 
   // Load value at address into register
