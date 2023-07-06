@@ -177,6 +177,8 @@ module mkPipelinedTagLookup #(
 
   // ROOT
 
+  // Set by initialise rules (see bottom of file)
+  Reg#(Bool) init_done <- mkReg(False);
   // memory requests fifo
   FF#(CheriMemRequest, 8)  rootBackupReqs <-  mkUGFFDebug("TagLookup_rootBackupReqs");
   // memory response fifo
@@ -733,9 +735,6 @@ module mkPipelinedTagLookup #(
   // TODO: what size should this be!
   // FF#(ProcessedRequest, CentralBufferSize) pendingLeafReqs <- mkUGFFBypass();
   FF#(ProcessedRequest, CentralBufferSize) pendingLeafReqs <- mkUGLFF();
-
-  // Set by initialise rules (see bottom of file)
-  Reg#(Bool) init_done <- mkReg(False);
 
   // Get response from rootCache and either respond early or send request to leafCache
   // Assumes that write responses contain the tag data BEFORE the write takes place
