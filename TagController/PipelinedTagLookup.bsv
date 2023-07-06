@@ -620,6 +620,7 @@ module mkPipelinedTagLookup #(
   endfunction
 
   rule issueRootRequest (
+    init_done &&
     rootCache.canPut &&
     (
       // RUNTYPE: LOCK ON FOLD
@@ -985,6 +986,7 @@ module mkPipelinedTagLookup #(
   endrule
 
   rule issueLeafRequest (
+    init_done &&
     leafCache.canPut &&
     pendingLeafReqs.notEmpty &&
     // Don't let there be two requests in flight with same ID!
@@ -1024,7 +1026,7 @@ module mkPipelinedTagLookup #(
 
   // Get response from leafCache and either end request or enq to foldRequests
   // NOTE: no risk of foldRequests being full as has priority
-  rule consumeLeafResponse (leafCache.response.canGet && lateRsps.notFull);
+  rule consumeLeafResponse (init_done && leafCache.response.canGet && lateRsps.notFull);
     CheriMemResponse resp <- leafCache.response.get();
     CheriTransactionID transID = resp.transactionID;
 
@@ -1205,7 +1207,7 @@ module mkPipelinedTagLookup #(
   // transaction number for memory requests
   FF#(Bool,8) zero_reqs_in_flight <- mkFFBypass();
 
-  rule initialise (!zeros_sent);
+  rule initialise (!init_done && !zeros_sent);
     `ifndef NO_TAGTABLE_ZEROING
     TableLvl t = tableDesc[rootLvl];
     if (zeroAddr < unpack(pack(t.startAddr) + fromInteger(t.size))) begin
