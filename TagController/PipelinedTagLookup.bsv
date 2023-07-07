@@ -45,6 +45,7 @@ import MultiLevelTagLookup::*;
 import Merge::*;
 import Bag::*;
 import VnD::*;
+import UGFFFullOfUniqueInts::*;
 
 
 // How many tag ops per cache can be in flight
@@ -178,7 +179,11 @@ module mkPipelinedTagLookup #(
   // ROOT
 
   // Set by initialise rules (see bottom of file)
+  `ifndef NO_TAGTABLE_ZEROING
   Reg#(Bool) init_done <- mkReg(False);
+  `else
+  Reg#(Bool) init_done <- mkReg(True);
+  `endif
   // memory requests fifo
   FF#(CheriMemRequest, 8)  rootBackupReqs <-  mkUGFFDebug("TagLookup_rootBackupReqs");
   // memory response fifo
@@ -1199,64 +1204,50 @@ module mkPipelinedTagLookup #(
   `define NO_TAGTABLE_ZEROING
 `endif
 
-  // state register
-  Reg#(Bool) zeros_sent <- mkReg(False);
   // address to zero when in Init state
   Reg#(CheriPhyAddr) zeroAddr <- mkReg(tagTabStrtAddr);
   // transaction number for memory requests
-  FF#(Bool,8) zero_reqs_in_flight <- mkFFBypass();
+  FF#(CheriTransactionID,TSub#(TExp#(CheriTransactionIDWidth),1)) zero_ids <- mkUGFFFullOfUniqueInts();
 
-  rule initialise (!init_done && !zeros_sent);
-    `ifndef NO_TAGTABLE_ZEROING
-    TableLvl t = tableDesc[rootLvl];
-    if (zeroAddr < unpack(pack(t.startAddr) + fromInteger(t.size))) begin
-      // prepare memory request
-      CheriMemRequest mReq = defaultValue;
-      mReq.addr            = zeroAddr;
-      mReq.masterID        = mID;
-      mReq.transactionID   = rootTransNum;
-      mReq.operation       = tagged Write {
-                                      uncached: False,
-                                      conditional: False,
-                                      byteEnable: unpack(-1),
-                                      bitEnable: -1,
-                                      data: unpack(0),
-                                      length: 0,
-                                      last: True
-                                    };
-      // send memory request
-      rootCache.put(mReq);
-      zero_reqs_in_flight.enq(True);
-      debug2("taglookup", $display( "<time %0t TagLookup> ", $time,
-        "zeroing tag table toplevel: ", fshow(mReq)
-      ));
-      // increment transaction number and address
-      rootTransNum <= rootTransNum + 1;
-      zeroAddr.lineNumber <= zeroAddr.lineNumber + 1;
-    end else begin
-      zeros_sent <= True;
-    end
-    `else // NO_TAGTABLE_ZEROING
-    // If not zeroing, go straight to Serving state
-    zeros_sent <= True;
-    init_done <= True;
-    `endif
+  TableLvl rootDesc = tableDesc[rootLvl];
+  CheriPhyAddr lastAddr = unpack(pack(rootDesc.startAddr) + fromInteger(rootDesc.size));
+  rule initialise ((zeroAddr < lastAddr) && !init_done && zero_ids.notEmpty);
+    CheriPhyAddr nextZeroAddr = CheriPhyAddr{lineNumber: zeroAddr.lineNumber + 1, byteOffset: 0};
+    Bool last = !(nextZeroAddr < lastAddr);
+    // prepare memory request
+    CheriMemRequest mReq = defaultValue;
+    mReq.addr            = zeroAddr;
+    mReq.masterID        = mID;
+    mReq.transactionID   = last ? -1:zero_ids.first;
+    mReq.operation       = tagged Write {
+                                    uncached: False,
+                                    conditional: False,
+                                    byteEnable: unpack(-1),
+                                    bitEnable: -1,
+                                    data: unpack(0),
+                                    length: 0,
+                                    last: True
+                                  };
+    // send memory request
+    rootCache.put(mReq);
+    if (!last) zero_ids.deq;
+    debug2("taglookup", $display( "<time %0t TagLookup> ", $time,
+      "zeroing tag table toplevel: ", fshow(mReq)
+    ));
+    // increment transaction number and address
+    rootTransNum <= rootTransNum + 1;
+    zeroAddr <= nextZeroAddr;
   endrule
 
-  `ifndef NO_TAGTABLE_ZEROING
-  rule consume_zero_rsps (!init_done);
-    let _ <- rootCache.response.get();
-    zero_reqs_in_flight.deq();
+  rule consume_zero_rsps (!init_done && rootCache.response.canGet);
+    let rsp <- rootCache.response.get();
+    debug2("taglookup", $display( "<time %0t TagLookup> ", $time,
+      "consume_zero_rsps: ", fshow(rsp)
+    ));
+    CheriTransactionID id = getRespId(rsp).transactionID;
+    if (id == -1) init_done <= True;
+    else zero_ids.enq(id);
   endrule
-
-  rule mark_init_done (
-    !init_done &&
-    zeros_sent &&
-    !zero_reqs_in_flight.notEmpty
-  );
-    init_done <= True;
-  endrule
-  `endif
 /*
   rule debug;
     debug2("taglookup", $display(

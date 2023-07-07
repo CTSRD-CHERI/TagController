@@ -40,7 +40,7 @@ BSVPATH = +:$(BLUESTUFF_DIRS):Test:Test/bluecheck:TagController:TagController/Ca
 
 BSCFLAGS = -p $(BSVPATH) -D MEM512 -D CAP128 -D BLUESIM
 CAPSIZE = 128
-TAGS_STRUCT = 0 128
+TAGS_STRUCT = 0 64
 TAGS_ALIGN = 16
 
 # generated files directories
@@ -58,8 +58,8 @@ BSCFLAGS += -sched-dot
 BSCFLAGS += -show-range-conflict
 #BSCFLAGS += -show-rule-rel \* \*
 #BSCFLAGS += -steps-warn-interval n
-BSCFLAGS += -D CheriMasterIDWidth=3
-BSCFLAGS += -D CheriTransactionIDWidth=5
+BSCFLAGS += -D CheriMasterIDWidth=1
+BSCFLAGS += -D CheriTransactionIDWidth=6
 BSCFLAGS += -D BenchmarkIDWidth=4 # Must be less than or equal to CheriTransactionIDWidth
 # BSCFLAGS += +RTS -K33554432 -RTS
 BSCFLAGS += +RTS -K512M -RTS
@@ -104,7 +104,7 @@ fromfilegraphs: $(OUTPUTDIR)/fromfile-info/mkTagController_combined_full.dot  $(
 
 TagController/TagTableStructure.bsv: $(CURDIR)/tagsparams.py
 	@echo "INFO: Re-generating CHERI tag controller parameters"
-	$^ -v -c $(CAPSIZE) -s $(TAGS_STRUCT:"%"=%) -a $(TAGS_ALIGN) --data-store-base-addr 0x00000000 -b $@ 0xbfff8000 0x17ffff000
+	$^ -v -c $(CAPSIZE) -s $(TAGS_STRUCT:"%"=%) -a $(TAGS_ALIGN) --data-store-base-addr 0x00000000 -b $@ 0x0fff8000 0x17ffff000
 	@echo "INFO: Re-generated CHERI tag controller parameters"
 
 
