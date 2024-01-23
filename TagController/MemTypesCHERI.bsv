@@ -375,7 +375,7 @@ typedef UInt#(2) Bank;
   `ifdef SMALL_TAG_CACHE
     typedef 16384 TagCacheKilobytes; // Each way should fit in a RAMB36
   `else
-    typedef 131072 TagCacheKilobytes; // Each way should fit in a URAM
+    typedef 524288 TagCacheKilobytes; // Each way should fit in a URAM
   `endif
   typedef TLog#(TDiv#(TagCacheKilobytes, TMul#(CheriBusBytes,Banks))) Indices; // 128KiB XXX: Don't hardcode?
 `endif
