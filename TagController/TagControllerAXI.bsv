@@ -44,7 +44,7 @@ import FIFO::*;
 import FIFOF::*;
 import Clocks :: *;
 import Debug::*;
-import Fabric_Defs::*;
+//import Fabric_Defs::*;
 `ifdef PERFORMANCE_MONITORING
 import PerformanceMonitor :: *;
 import Vector :: *;
@@ -57,6 +57,7 @@ import CacheCore :: *;
  * A wrapper around the CHERI tag controller to export an AXI interface.
  *
  *****************************************************************************/
+typedef 128  Wd_Data;
 
 interface TagControllerAXI#(
   numeric type id_,
@@ -71,7 +72,7 @@ interface TagControllerAXI#(
 endinterface
 
 module mkNullTagControllerAXI(TagControllerAXI#(id_, addr_,Wd_Data))
-  provisos (Add#(a__, id_, CheriTransactionIDWidth), Add#(c__, addr_, 64),Add#(b__, id_, 7));
+  provisos (Add#(a__, id_, CheriTransactionIDWidth), Add#(c__, addr_, 64),Add#(b__, id_, 7), Add#(d__, id_, 8));
   let    clk <- exposeCurrentClock;
   let newRst <- mkReset(0, True, clk);
   //Workaround: these are being enqueued while full in Piccolo. Made the buffer size larger (32 from 4)
@@ -95,7 +96,7 @@ module mkNullTagControllerAXI(TagControllerAXI#(id_, addr_,Wd_Data))
       arsize: ar.arsize,
       arburst: INCR,
       arlock: NORMAL,
-      arcache: fabric_default_arcache,
+      arcache: awcache_dev_nonbuf,
       arprot: 0,
       arqos: 0,
       arregion: 0,
@@ -111,7 +112,7 @@ module mkNullTagControllerAXI(TagControllerAXI#(id_, addr_,Wd_Data))
       awsize: aw.awsize,
       awburst: INCR,
       awlock: NORMAL,
-      awcache: fabric_default_awcache,
+      awcache: awcache_dev_nonbuf,
       awprot: 0,
       awqos: 0,
       awregion: 0,
