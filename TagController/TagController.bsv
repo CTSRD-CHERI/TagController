@@ -259,7 +259,11 @@ module mkTagController(TagControllerIfc);
             tagOnlyRead = True;
         end
         // We only enqueue request to DRAM if this is not a tagOnlyRead
-        Bool canDoEnq = !tagOnlyRead;
+        Bool canDoEnq = !tagOnlyRead && req.isPoisoned != 1'b1;
+`ifdef POISON
+        if (req.isPoisoned ==1'b1) 
+          $display("tagcontroller req is poisoned, cancelled");
+`endif 
         if (canDoEnq) begin
             mReqs.enq(req);
             // Signal that the next burst in mReqs can be forwarded downstream.

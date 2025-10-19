@@ -114,7 +114,7 @@ function Bit#(64) fromAddr(Addr x, AddrMap addrMap);
   for (Integer i = 0; i < valueOf(NumAddrBits); i=i+1)
     offset[addrMap.index[i]] = x.addr[i];
   Bit#(5) line = extend({x.dword, 4'b000});
-  return (64'h00000000 + {0, offset, line });
+  return (64'hC0000000 + {0, offset, line });
 endfunction
 
 // Functions ==================================================================
@@ -123,7 +123,7 @@ endfunction
 function Tuple2#(Bit#(1), Bit#(128)) fromData(Data x) = tuple2(x[16],zeroExtend(x));
 
 // Convert from 64-bit data to Data
-function Data toData(Bit#(128) d) = {1'b0, d[15:0]};
+function Data toData(Bit#(1) t, Bit#(128) d) = {t, d[15:0]};
 
 // Show addresses
 instance FShow#(Addr);
@@ -167,7 +167,7 @@ endinstance
 
 // Memory client module =======================================================
 
-module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, CapsPerFlit, 0, 1, CapsPerFlit) axiSlave) (MemoryClient)
+module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 1, CapsPerFlit, 0, 1, CapsPerFlit) axiSlave) (MemoryClient)
   provisos (Add#(a__, addrWidth, 64), Add#(b__, idWidth, 8));
 
   // Response FIFO
@@ -190,7 +190,7 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, CapsPerFlit, 0, 1
   rule handleReadResponses (nextIsLoad && axiSlave.r.canPeek);
     outstandingFIFO.deq;
     let r <- get(axiSlave.r);
-    responseFIFO.enq(DataResponse(toData( r.rdata)));
+    responseFIFO.enq(DataResponse(toData( r.ruser, r.rdata)));
   endrule
 
   // Functions
@@ -214,11 +214,12 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, CapsPerFlit, 0, 1
   function Action storeGeneric(Data data, Addr addr) =
     action
       Bit#(64) fullAddr = fromAddr(addr, addrMap);
-      AXI4_AWFlit#(idWidth, addrWidth, 0) addrReq = defaultValue;
+      AXI4_AWFlit#(idWidth, addrWidth, 1) addrReq = defaultValue;
       addrReq.awid = truncate(idCount);
       idCount <= idCount + 1;
       addrReq.awcache = 4'b1011;
       addrReq.awaddr = truncate(fullAddr);
+      addrReq.awuser = 1'b1;
       axiSlave.aw.put(addrReq);
 
       AXI4_WFlit#(128, 1) dataReq = defaultValue;
@@ -245,6 +246,7 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, CapsPerFlit, 0, 1
 
   // Responses
   method ActionValue#(MemoryClientResponse) getResponse;
+    $display("client get response", fshow(responseFIFO.first));
     responseFIFO.deq;
     return responseFIFO.first;
   endmethod

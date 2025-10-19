@@ -33,7 +33,7 @@ import MemTypesCHERI::*;
 //import Fabric_Defs::*;
 
 typedef struct {
-  AXI4_AWFlit#(id_, addr_, 0) aw;
+  AXI4_AWFlit#(id_, addr_, tag_) aw;
   AXI4_WFlit#(data_, tag_) w;
 } WriteReqFlit#(numeric type id_, numeric type addr_, numeric type data_, numeric type tag_)
 deriving (Bits, FShow);
