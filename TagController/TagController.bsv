@@ -350,7 +350,8 @@ module mkTagController(TagControllerIfc);
         Bool mreq_canceled =False;
         case (tagLookUpRsp.d.rsp.tags) matches
           tagged Covered .ts : begin
-            if (ts[0]  ) mreq_canceled = True;
+            if(mReqs.first.operation matches tagged Read .rop)
+              if (ts[0]  ) mreq_canceled = True;
           end
         endcase
         CheriMemRequest returned_mreq = memoryGetPeek;
