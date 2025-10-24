@@ -217,17 +217,19 @@ module mkTagController(TagControllerIfc);
   Bool slvCanGet = tagRsp.v || untrackedResponse;
 
   // Calculate peek of memory request interface.
-  CheriMemRequest memoryGetPeek = (mReqBurst.notEmpty) ? mReqs.first:tagLookup.memory.request.peek();
-  Bool memoryCanGet = mReqBurst.notEmpty || tagLookup.memory.request.canGet;
+  CheriMemRequest memoryGetPeek = (mReqBurst.notEmpty&&lookupRsp.first(getReqId(mReqs.first)).v) ? mReqs.first:tagLookup.memory.request.peek();
+  Bool memoryCanGet = mReqBurst.notEmpty &&lookupRsp.first(getReqId(mReqs.first)).v || tagLookup.memory.request.canGet;
 
   // Comment in when debugging flow control.
-/*  rule debug;
-    debug2("tagcontroller", $display("<time %0t TagController> slvCanPut:%x tagLookup.cache.request.canPut(1):%x tagLookup.memory.request.canGet(0):%x mReqs.notFull(1):%x",
-                                     $time, slvCanPut, tagLookup.cache.request.canPut(), tagLookup.memory.request.canGet(), mReqs.notFull()));
-    debug2("tagcontroller", $display("<time %0t TagController> slvCanGet:%x tagRsp.v(1):%x untrackedResponse(1):%x",
-                                     $time, slvCanGet, tagRsp.v, untrackedResponse));
-  endrule*/
-
+  /*
+   rule debug;
+    debug2("tagcontroller", $display("<time %0t TagController> lookupRsp.first",$time, fshow(lookupRsp.first(getReqId(mReqs.first))), fshow(memoryCanGet)));
+    //debug2("tagcontroller", $display("<time %0t TagController> slvCanPut:%x tagLookup.cache.request.canPut(1):%x tagLookup.memory.request.canGet(0):%x mReqs.notFull(1):%x",
+    //                                 $time, slvCanPut, tagLookup.cache.request.canPut(), tagLookup.memory.request.canGet(), mReqs.notFull()));
+    //debug2("tagcontroller", $display("<time %0t TagController> slvCanGet:%x tagRsp.v(1):%x mReqBurst.notEmpty (1):%x",
+    //                                 $time, slvCanGet, tagRsp.v, mReqBurst.notEmpty ));
+  endrule
+  */
   // module Slave interface
   /////////////////////////////////////////////////////////////////////////////
 
@@ -339,7 +341,7 @@ module mkTagController(TagControllerIfc);
       method Bool canGet() = memoryCanGet;
       method CheriMemRequest peek() = memoryGetPeek;
       method ActionValue#(CheriMemRequest) get() if (memoryCanGet);
-        if (mReqBurst.notEmpty) begin
+        if (mReqBurst.notEmpty && lookupRsp.first(getReqId(mReqs.first)).v) begin
           mReqs.deq();
           if (getLastField(mReqs.first)) mReqBurst.deq();
         end
