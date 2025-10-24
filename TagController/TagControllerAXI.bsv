@@ -177,6 +177,7 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
 `ifdef POISON
   let nonPoisonff <- mkFIFOF;
   FF#(CheriMemResponse, TMul#(MaxBurstLength, InFlight)) poison_mRsps <- mkUGFFDebug("TagController_poison_mRsps");
+  FF#(CheriMemResponse, TMul#(MaxBurstLength, InFlight)) dummy_mRsps <- mkUGFFDebug("TagController_dummy_mRsps");
 
 `endif 
   Reg#(Bit#(addr_)) addrOffset <- mkReg(0);
@@ -294,7 +295,16 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
         if (w.w.wlast) newDoneSendingAW = False;
         doneSendingAW <= newDoneSendingAW;
       end
-      tagged Read .r: shimMaster.slave.ar.put(r);
+      tagged Read .r: begin 
+        if(mr.cancelled) begin 
+          CheriMemResponse dummyResp = defaultRspFromReq(mr);
+          dummyResp.data = unpack(0);
+          $display("tag controller axi cancel memory read");
+          dummy_mRsps.enq(dummyResp);
+        end else begin 
+          shimMaster.slave.ar.put(r);
+        end 
+      end 
     endcase
     debug2("tagcontroller", $display("Memory request ", fshow(ar)));
   endrule
@@ -312,11 +322,19 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
     tagCon.memory.response.put(mr);
     debug2("tagcontroller", $display("Memory write response ", fshow(rsp)));
   endrule
+
   rule passMemoryResponseRead;
     let rsp <- get(shimMaster.slave.r);
     CheriMemResponse mr = axi2mem_rsp(Read(rsp));
     tagCon.memory.response.put(mr);
     debug2("tagcontroller", $display("Memory read response ", fshow(rsp)));
+  endrule
+
+  rule passDummyMemoryResponseRead(dummy_mRsps.notEmpty);
+    CheriMemResponse rsp = dummy_mRsps.first;
+    dummy_mRsps.deq;
+    tagCon.memory.response.put(rsp);
+    debug2("tagcontroller", $display("Dummy memory read response", fshow(rsp)));
   endrule
 
   method clear if (reset_done) = action

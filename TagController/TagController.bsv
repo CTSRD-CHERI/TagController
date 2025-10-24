@@ -346,8 +346,21 @@ module mkTagController(TagControllerIfc);
           if (getLastField(mReqs.first)) mReqBurst.deq();
         end
         else let unused <- tagLookup.memory.request.get();
-        debug2("tagcontroller", $display("<time %0t TagController> request to memory (ForwardingMemoryRequest:%d): ", $time, mReqBurst.notEmpty, " ", fshow(memoryGetPeek)));
-        return memoryGetPeek;
+        VnD#(LookupRspInfo) tagLookUpRsp = lookupRsp.first(getReqId(mReqs.first));
+        Bool mreq_canceled =False;
+        case (tagLookUpRsp.d.rsp.tags) matches
+          tagged Covered .ts : begin
+            if (ts[0]  ) mreq_canceled = True;
+          end
+        endcase
+        CheriMemRequest returned_mreq = memoryGetPeek;
+        if(mreq_canceled) begin 
+          returned_mreq.cancelled =True;
+          debug2("tagcontroller", $display("<time %0t TagController> memory request needs to be cancelled: ", $time, mReqBurst.notEmpty, " ", fshow(returned_mreq)));
+        end 
+        debug2("tagcontroller", $display("<time %0t TagController> request to memory (ForwardingMemoryRequest:%d): ", $time, mReqBurst.notEmpty, " ", fshow(returned_mreq)));
+
+        return returned_mreq;
       endmethod
     endinterface
     interface CheckedPut response;
