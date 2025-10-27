@@ -136,10 +136,15 @@ typedef 40 AddrWidth;
   typedef TMax#(TDiv#(CheriBusBytes,CapBytes),1) CapsPerFlit;
   typedef Vector#(CapsPerFlit,Bool) CapTags;
   typedef Bit#(TSub#(AddrWidth,TLog#(CapBytes))) CapNumber;
+  typedef Bit#(TSub#(AddrWidth,TLog#(CpuLineSize))) PoisonCapNumber;
   typedef struct {
     CapNumber capNumber;
     Bit#(TLog#(CapBytes))           offset;
   } CheriCapAddress deriving (Bits, Eq, Bounded, FShow);
+  typedef struct {
+    PoisonCapNumber capNumber;
+    Bit#(TLog#(CpuLineSize))           offset;
+  } PoisonCheriCapAddress deriving (Bits, Eq, Bounded, FShow);
 `endif
 typedef TMul#(CheriBusBytes,8) CheriDataWidth;
 typedef TSub#(AddrWidth,TLog#(CheriBusBytes)) CheriLineAddrWidth;
@@ -156,6 +161,7 @@ typedef Bit#(TSub#(AddrWidth,TAdd#(TLog#(CheriBusBytes),2))) Line;
 
 typedef 64 CpuLineSize; // Largest line that we can serve tag transactions on.
 typedef Bit#(TLog#(TDiv#(CpuLineSize, CapBytes))) CapOffsetInLine;
+typedef Bit#(TLog#(TDiv#(CpuLineSize, 32))) PoisonCapOffsetInLine;
 
 // bytes per flit
 typedef enum {
@@ -251,6 +257,7 @@ typedef struct {
     transactionid_t transactionID;
     // This operation should not cause side effects.
     Bool cancelled;
+    Bit#(1) isPoisoned;
     // operation to be performed by the request
     union tagged {
         // read operation
@@ -411,6 +418,7 @@ typedef struct {
     } operation;
     // line data for Read (could be in tagged Union, but avoid muxes by putting it here)
     Data#(data_width) data;
+    Bool isZeroed;
 } MemoryResponse#(type masterid_t, type transactionid_t, numeric type data_width) deriving (Bits);
 
 instance DefaultValue#(MemoryResponse#(a,b,c))

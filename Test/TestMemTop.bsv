@@ -66,7 +66,7 @@ module [Module] mkTestMemTopSingle (Empty);
   TagControllerAXI#(4,32,128) dut <- mkTagControllerAXI(reset_by r.new_rst);
   // Instantiate DRAM model
   // (max oustanding requests = 4)
-  AXI4_Slave#(8, 32, 128, 0, 0, 0, 0, 0) dram <- mkModelDRAMAssoc(4, reset_by r.new_rst);
+  AXI4_Slave#(8, 32, 128, 0, 0, 0, 0, 0) dram <- mkModelDRAMAssoc(32, reset_by r.new_rst);
   // Connect core to DRAM
   mkConnection(dut.master, dram, reset_by r.new_rst);
   // Create test client for DUT

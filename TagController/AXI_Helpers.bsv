@@ -30,10 +30,10 @@
 import DefaultValue::*;
 import AXI4::*;
 import MemTypesCHERI::*;
-import Fabric_Defs::*;
+//import Fabric_Defs::*;
 
 typedef struct {
-  AXI4_AWFlit#(id_, addr_, 0) aw;
+  AXI4_AWFlit#(id_, addr_, tag_) aw;
   AXI4_WFlit#(data_, tag_) w;
 } WriteReqFlit#(numeric type id_, numeric type addr_, numeric type data_, numeric type tag_)
 deriving (Bits, FShow);
@@ -128,7 +128,7 @@ function DRAMReq#(id_, addr_) mem2axi_req(CheriMemRequest mr)
           awsize: unpack(pack(countZerosLSB(byteEnableOnes))), // XXX: Must have power-of-two number of byte-enables set
           awburst: INCR,
           awlock: NORMAL,
-          awcache: fabric_default_awcache,
+          awcache: awcache_dev_nonbuf,
           awprot: 0,
           awqos: 0,
           awregion: 0,
@@ -153,7 +153,7 @@ function DRAMReq#(id_, addr_) mem2axi_req(CheriMemRequest mr)
         arsize: unpack(pack(r.bytesPerFlit)),
         arburst: INCR,
         arlock: NORMAL,
-        arcache: fabric_default_arcache,
+        arcache: awcache_dev_nonbuf,
         arprot: 0,
         arqos: 0,
         arregion: 0,

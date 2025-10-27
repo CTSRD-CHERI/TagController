@@ -36,9 +36,9 @@ BLUEBASICSDIR = $(BLUESTUFFDIR)/BlueBasics
 BLUEUTILSDIR = $(BLUESTUFFDIR)/BlueUtils
 BLUESTUFF_DIRS = $(BLUESTUFFDIR):$(BLUEAXI4DIRS):$(BLUEBASICSDIR):$(BLUEUTILSDIR):$(BLUESTUFFDIR)/Stratix10ChipID
 
-BSVPATH = +:$(BLUESTUFF_DIRS):Test:Test/bluecheck:TagController:TagController/CacheCore
+BSVPATH = +:$(BLUESTUFF_DIRS):Test:Test/bluecheck:TagController:PoisonTagController:TagController/CacheCore
 
-BSCFLAGS = -p $(BSVPATH) -D MEM128 -D CAP128 -D BLUESIM
+BSCFLAGS = -p $(BSVPATH) -D MEM128 -D CAP128 -D BLUESIM -D POISON -keep-fires  -aggressive-conditions
 CAPSIZE = 128
 TAGS_STRUCT = 0 128
 TAGS_ALIGN = 16
@@ -49,7 +49,7 @@ BDIR = $(BUILDDIR)/bdir
 SIMDIR = $(BUILDDIR)/simdir
 
 OUTPUTDIR = output
-TOPMODULE = mkTestMemTop
+TOPMODULE = mkTestPoisonMemTop
 
 BSCFLAGS += -bdir $(BDIR)
 BSCFLAGS += -simdir $(SIMDIR)
@@ -70,7 +70,7 @@ SIMTESTS = $(addprefix sim, $(notdir $(basename $(SIMTESTSSRC))))
 
 all: simTest
 
-simTest: $(TESTSDIR)/TestMemTop.bsv TagController/TagTableStructure.bsv
+simTest: $(TESTSDIR)/TestPoisonMemTop.bsv TagController/TagTableStructure.bsv
 	mkdir -p $(OUTPUTDIR)/$@-info $(BDIR) $(SIMDIR)
 	$(BSC) -info-dir $(OUTPUTDIR)/$@-info -simdir $(SIMDIR) $(BSCFLAGS) -sim -g $(TOPMODULE) -u $<
 	CC=$(CC) CXX=$(CXX) $(BSC) -simdir $(SIMDIR) $(BSCFLAGS) -sim -e $(TOPMODULE) -o $(OUTPUTDIR)/$@

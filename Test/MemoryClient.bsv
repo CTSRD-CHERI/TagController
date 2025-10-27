@@ -50,6 +50,7 @@ import BlueCheck    :: *;
 import Debug        :: *;
 import SourceSink   :: *;
 import BlueAXI4     :: *;
+import TagController::*;
 
 // This module has been developed for the purpose of testing the
 // (shared) memory sub-system.  It aims to provide a neat Bluespec
@@ -113,7 +114,7 @@ function Bit#(64) fromAddr(Addr x, AddrMap addrMap);
   for (Integer i = 0; i < valueOf(NumAddrBits); i=i+1)
     offset[addrMap.index[i]] = x.addr[i];
   Bit#(5) line = extend({x.dword, 4'b000});
-  return (64'h00000000 + {0, offset, line });
+  return (64'hC0000000 + {0, offset, line });
 endfunction
 
 // Functions ==================================================================
@@ -166,7 +167,7 @@ endinstance
 
 // Memory client module =======================================================
 
-module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, 1, 0, 0, 1) axiSlave) (MemoryClient)
+module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 1, CapsPerFlit, 0, 1, CapsPerFlit) axiSlave) (MemoryClient)
   provisos (Add#(a__, addrWidth, 64), Add#(b__, idWidth, 8));
 
   // Response FIFO
@@ -189,14 +190,14 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, 1, 0, 0, 1) axiSl
   rule handleReadResponses (nextIsLoad && axiSlave.r.canPeek);
     outstandingFIFO.deq;
     let r <- get(axiSlave.r);
-    responseFIFO.enq(DataResponse(toData(r.ruser, r.rdata)));
+    responseFIFO.enq(DataResponse(toData( r.ruser, r.rdata)));
   endrule
 
   // Functions
   function Action loadGeneric(Addr addr) =
     action
       Bit#(64) fullAddr = fromAddr(addr, addrMap);
-      AXI4_ARFlit#(idWidth, addrWidth, 0) addrReq = defaultValue;
+      AXI4_ARFlit#(idWidth, addrWidth, 1) addrReq = defaultValue;
       addrReq.arid = truncate(idCount);
       idCount <= idCount + 1;
       addrReq.araddr = truncate(fullAddr);
@@ -213,11 +214,12 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, 1, 0, 0, 1) axiSl
   function Action storeGeneric(Data data, Addr addr) =
     action
       Bit#(64) fullAddr = fromAddr(addr, addrMap);
-      AXI4_AWFlit#(idWidth, addrWidth, 0) addrReq = defaultValue;
+      AXI4_AWFlit#(idWidth, addrWidth, 1) addrReq = defaultValue;
       addrReq.awid = truncate(idCount);
       idCount <= idCount + 1;
       addrReq.awcache = 4'b1011;
       addrReq.awaddr = truncate(fullAddr);
+      addrReq.awuser = 1'b1;
       axiSlave.aw.put(addrReq);
 
       AXI4_WFlit#(128, 1) dataReq = defaultValue;
@@ -244,6 +246,7 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 128, 0, 1, 0, 0, 1) axiSl
 
   // Responses
   method ActionValue#(MemoryClientResponse) getResponse;
+    $display("client get response", fshow(responseFIFO.first));
     responseFIFO.deq;
     return responseFIFO.first;
   endmethod
@@ -297,6 +300,7 @@ module mkMemoryClientGolden (MemoryClient);
   method Action load(Addr addr) if (!init);
     let dA = memA.sub(addr.addr);
     let dB = memB.sub(addr.addr);
+    $display("load: ", fshow(DataResponse(addr.dword == 1 ? dB : dA)));
     responseFIFO.enq(DataResponse(addr.dword == 1 ? dB : dA));
   endmethod
 
@@ -306,6 +310,7 @@ module mkMemoryClientGolden (MemoryClient);
       memB.upd(addr.addr, data);
     else
       memA.upd(addr.addr, data);
+    $display("store: ", fshow(addr), fshow(data));
     tagMem.upd(addr, False);
   endmethod
 
@@ -314,7 +319,7 @@ module mkMemoryClientGolden (MemoryClient);
 
   // Responses
   method ActionValue#(MemoryClientResponse) getResponse;
-    //$display("response: ", fshow(responseFIFO.first));
+    $display("response: ", fshow(responseFIFO.first));
     responseFIFO.deq;
     return responseFIFO.first;
   endmethod
