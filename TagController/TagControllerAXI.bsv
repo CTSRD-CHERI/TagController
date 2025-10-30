@@ -40,6 +40,8 @@ import AXI_Helpers::*;
 import AXI4::*;
 import BlueUtils :: *;
 import TagController::*;
+import PoisonTagController::*;
+
 import FIFO::*;
 import FIFOF::*;
 import Clocks :: *;
@@ -170,6 +172,9 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
   let    clk <- exposeCurrentClock;
   let newRst <- mkReset(0, True, clk);
   TagControllerIfc tagCon <- mkTagController(reset_by newRst.new_rst);
+`ifdef POISON
+  PoisonTagControllerIfc ptagCon <- mkPoisonTagController(reset_by newRst.new_rst);
+`endif 
   //Workaround: these are being enqueued while full in Piccolo. Made the buffer size larger (32 from 4)
   AXI4_Shim#(id_, addr_, Wd_Data, 1, CapsPerFlit, 0, 1, CapsPerFlit) shimSlave  <- mkAXI4ShimBypassFIFOF;//mkAXI4ShimFF;
   AXI4_Shim#(SizeOf#(ReqId), addr_, Wd_Data, 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimBypassFIFOF;
@@ -206,8 +211,17 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
     end
     awreq.awaddr = awreq.awaddr + addrOffset;
     let mreq = axi2mem_req(Write(WriteReqFlit{aw: awreq, w: wreq}));
-    tagCon.cache.request.put(mreq);
-    debug2("tagcontroller", $display("TagController write request ", fshow(awreq), " - ", fshow(wreq)));
+`ifdef POISON
+    if(awreq.awuser == 1'b1) begin 
+      ptagCon.cache.request.put(mreq);
+      debug2("tagcontroller", $display("Poison TagController write request ", fshow(awreq), " - ", fshow(wreq)));
+    end else begin 
+`endif 
+      tagCon.cache.request.put(mreq);
+      debug2("tagcontroller", $display("TagController write request ", fshow(awreq), " - ", fshow(wreq)));
+`ifdef POISON
+    end 
+`endif 
   endrule
   // Ready if there is no partial write burst or if the read request is first.
   // The tag controller is currently unable to correctly handle a read in the
@@ -217,7 +231,15 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
     tagCon.cache.request.put(axi2mem_req(Read(ar)));
     //printDbg(dbg, $format("TagController read request ", fshow(ar)));
   endrule
+`ifdef POISON
+  rule passPoisonCacheRead(!writeBurst);
+    let ar <- get(shimSlave.master.ar);
+    ptagCon.cache.request.put(axi2mem_req(Read(ar)));
+    //printDbg(dbg, $format("TagController read request ", fshow(ar)));
+  endrule
+`endif 
   rule passCacheResponse;
+    $display("passCacheResponse");
     CheriMemResponse mr <- tagCon.cache.response.get();
     AXI_Helpers::MemRsp#(id_) ar = mem2axi_rsp(mr);
     case (ar) matches
@@ -226,7 +248,18 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
     endcase
     //printDbg(dbg, $format("TagController response ", fshow(ar)));
   endrule
-
+`ifdef POISON
+  rule passPoisonCacheResponse;
+    $display("passPoisonCacheResponse");
+    CheriMemResponse mr <- ptagCon.cache.response.get();
+    AXI_Helpers::MemRsp#(id_) ar = mem2axi_rsp(mr);
+    case (ar) matches
+      tagged Write .w: shimSlave.master.b.put(w);
+      tagged Read  .r: shimSlave.master.r.put(r);
+    endcase
+    //printDbg(dbg, $format("TagController response ", fshow(ar)));
+  endrule
+`endif 
   // Rules to forward requests from the tag controller to the master AXI interface.
   let doneSendingAW <- mkReg(False);
   rule passMemoryRequest;
@@ -247,18 +280,58 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
     endcase
     debug2("tagcontroller", $display("Memory request ", fshow(ar)));
   endrule
+`ifdef POISON
+  let donePoisonSendingAW <- mkReg(False);
+  rule passPoisonMemoryRequest;
+    CheriMemRequest mr <- ptagCon.memory.request.get();
+    DRAMReq#(SizeOf#(ReqId), addr_) ar = mem2axi_req(mr);
+    case (ar) matches
+      tagged Write .w: begin
+        let newDoneSendingAW = donePoisonSendingAW;
+        if (!donePoisonSendingAW) begin
+          shimMaster.slave.aw.put(w.aw);
+          newDoneSendingAW = True;
+        end
+        shimMaster.slave.w.put(w.w);
+        if (w.w.wlast) newDoneSendingAW = False;
+        donePoisonSendingAW <= newDoneSendingAW;
+      end
+      tagged Read .r: shimMaster.slave.ar.put(r);
+    endcase
+    debug2("tagcontroller", $display("Poison Memory request ", fshow(ar)));
+  endrule
+`endif 
   (* descending_urgency = "passMemoryResponseRead, passMemoryResponseWrite" *)
   rule passMemoryResponseWrite;
     let rsp <- get(shimMaster.slave.b);
     CheriMemResponse mr = axi2mem_rsp(Write(rsp));
-    tagCon.memory.response.put(mr);
-    debug2("tagcontroller", $display("Memory write response ", fshow(rsp)));
+  `ifdef POISON
+    if (mr.masterID == 2) begin  
+      ptagCon.memory.response.put(mr);
+      debug2("tagcontroller", $display("Poison memory write response ", fshow(rsp)));
+    end 
+    else begin 
+  `endif 
+      tagCon.memory.response.put(mr);
+      debug2("tagcontroller", $display("Memory write response ", fshow(rsp)));
+`ifdef POISON
+    end 
+`endif 
   endrule
   rule passMemoryResponseRead;
     let rsp <- get(shimMaster.slave.r);
     CheriMemResponse mr = axi2mem_rsp(Read(rsp));
-    tagCon.memory.response.put(mr);
-    debug2("tagcontroller", $display("Memory read response ", fshow(rsp)));
+`ifdef POISON
+    if (mr.masterID == 2) begin   
+      ptagCon.memory.response.put(mr);
+      debug2("tagcontroller", $display("Poison Memory read response ", fshow(rsp)));
+    end else begin 
+`endif 
+      tagCon.memory.response.put(mr);
+      debug2("tagcontroller", $display("Memory read response ", fshow(rsp)));
+`ifdef POISON
+    end 
+`endif 
   endrule
 
   method clear if (reset_done) = action
