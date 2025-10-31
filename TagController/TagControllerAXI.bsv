@@ -180,6 +180,8 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
   let awreqff <- mkFIFOF;
   FF#(CheriMemResponse, TMul#(MaxBurstLength, InFlight)) poison_mRsps <- mkUGFFDebug("TagController_poison_mRsps");
   FF#(CheriMemResponse, TMul#(MaxBurstLength, InFlight)) poison_tagRsps <- mkUGFFDebug("TagController_poison_mRsps");
+  FF#(CheriMemResponse, TMul#(MaxBurstLength, InFlight)) dummy_tagRsps <- mkUGFFDebug("TagController_poison_mRsps");
+
 
   Reg#(Bit#(addr_)) addrOffset <- mkReg(0);
   Reg#(Bool) writeBurst <- mkReg(False);
@@ -227,8 +229,7 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
       };
       poison_mRsps.enq(rsp);
       ptagCon.cache.request.put(pmreq);
-      tagCon.cache.request.put(mreq);
-
+      dummy_tagRsps.enq(rsp);
       debug2("tagcontroller", $display("Poison TagController write request ", fshow(awreq), " - ", fshow(wreq)));
     end else begin 
 `endif 
@@ -263,8 +264,17 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
 
   rule passCacheResponse;
     $display("passCacheResponse");
-    CheriMemResponse mr  <- tagCon.cache.response.get();
-    AXI_Helpers::MemRsp#(id_) ar  = mem2axi_rsp(mr);
+    CheriMemResponse mr ;
+    AXI_Helpers::MemRsp#(id_) ar  ;
+
+    if(dummy_tagRsps.notEmpty) begin 
+      mr = dummy_tagRsps.first();
+      dummy_tagRsps.deq();
+      ar  = mem2axi_rsp(mr);
+    end else begin 
+      mr   <- tagCon.cache.response.get();
+      ar  = mem2axi_rsp(mr);
+    end 
 `ifdef POISON
     CheriMemResponse pmr ;
     AXI_Helpers::MemRsp#(id_) poison_ar ; 
@@ -276,18 +286,30 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
       pmr <- ptagCon.cache.response.get();
       poison_ar = mem2axi_rsp(pmr);
     end 
-    
+    let use_poison_response = False;
     case(poison_ar) matches
       tagged Write .w :
-        $display("poison_ar write", fshow(poison_ar));
-      tagged Read  .r : 
-        $display("poison_ar read", fshow(poison_ar));
+        $display("poison_ar write", fshow(w));
+      tagged Read  .r : begin 
+        if(r.rdata !=0) begin 
+          use_poison_response = True;
+          let new_r = r;
+          new_r.rdata = 512'h12345678;
+          new_r.ruser = 4'b1111;
+          shimSlave.master.r.put(new_r);
+          $display("poison_ar read", fshow(new_r));
+        end 
+      end 
     endcase 
-    $display("ar", fshow(ar));
 `endif 
     case (ar) matches
       tagged Write .w: shimSlave.master.b.put(w);
-      tagged Read  .r: shimSlave.master.r.put(r);
+      tagged Read  .r: begin 
+        if(!use_poison_response)
+          shimSlave.master.r.put(r);
+        $display("ar", fshow(r));
+
+      end 
     endcase
     
     //printDbg(dbg, $format("TagController response ", fshow(ar)));
