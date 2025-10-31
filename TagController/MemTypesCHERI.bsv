@@ -161,7 +161,7 @@ typedef Bit#(TSub#(AddrWidth,TAdd#(TLog#(CheriBusBytes),2))) Line;
 
 typedef 64 CpuLineSize; // Largest line that we can serve tag transactions on.
 typedef Bit#(TLog#(TDiv#(CpuLineSize, CapBytes))) CapOffsetInLine;
-typedef Bit#(TLog#(TDiv#(CpuLineSize, 32))) PoisonCapOffsetInLine;
+typedef Bit#(TLog#(TDiv#(CpuLineSize, CapBytes))) PoisonCapOffsetInLine;
 
 // bytes per flit
 typedef enum {

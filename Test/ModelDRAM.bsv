@@ -54,14 +54,14 @@ import AXI_Helpers  :: *;
 module mkModelDRAMGeneric#
          ( Integer maxOutstandingReqs         // Max outstanding requests
          , RegFile# (Bit#(wordAddrWidth)
-                   , Bit#(128)
+                   , Bit#(512)
                    ) ram                      // For storage
          )
-         (AXI4_Slave#(8, addrWidth, 128, 0, 0, 0, 0, 0))
+         (AXI4_Slave#(8, addrWidth, 512, 0, 0, 0, 0, 0))
          provisos (Add#(wordAddrWidth, 4, addrWidth)
          );
 
-  AXI4_Shim#(8, addrWidth, 128, 0, 0, 0, 0, 0) shim <- mkAXI4Shim();
+  AXI4_Shim#(8, addrWidth, 512, 0, 0, 0, 0, 0) shim <- mkAXI4Shim();
 
   // Slave interface
   FIFOF#(DRAMReq#(8, addrWidth)) preReqFifo <- mkSizedFIFOF(maxOutstandingReqs);
@@ -142,7 +142,7 @@ module mkModelDRAMGeneric#
     Bit#(wordAddrWidth) wordAddr = truncate(addr>>4);
 
     // Data lookup
-    Bit#(128) data = ram.sub(wordAddr);
+    Bit#(512) data = ram.sub(wordAddr);
 
     // Defualt response
     DRAMRsp#(8) resp = ?;
@@ -153,8 +153,8 @@ module mkModelDRAMGeneric#
       tagged Write .write:
         begin
           // Perform write
-          Vector#(16, Bit#(8)) bytes    = unpack(truncate(data));
-          Vector#(16, Bit#(8)) newBytes = unpack(truncate(write.w.wdata));
+          Vector#(64, Bit#(8)) bytes    = unpack(truncate(data));
+          Vector#(64, Bit#(8)) newBytes = unpack(truncate(write.w.wdata));
           for (Integer i = 0; i < valueOf(16); i=i+1)
             if (write.w.wstrb[i]==1'b1)
               bytes[i] = newBytes[i];
@@ -204,9 +204,9 @@ endmodule
 // Version using a standard register file
 module mkModelDRAM#
          ( Integer maxOutstandingReqs )       // Max outstanding requests
-         (AXI4_Slave#(8, addrWidth, 128, 0, 0, 0, 0, 0))
+         (AXI4_Slave#(8, addrWidth, 512, 0, 0, 0, 0, 0))
          provisos (Add#(wordAddrWidth, 4, addrWidth));
-  RegFile#(Bit#(wordAddrWidth), Bit#(128)) ram <- mkRegFileFull;
+  RegFile#(Bit#(wordAddrWidth), Bit#(512)) ram <- mkRegFileFull;
   let dram <- mkModelDRAMGeneric(maxOutstandingReqs, ram);
   return dram;
 endmodule
@@ -215,9 +215,9 @@ endmodule
 // the advantage of being efficiently resettable to a predefined state.
 module mkModelDRAMAssoc#
          ( Integer maxOutstandingReqs )         // Max outstanding requests
-         (AXI4_Slave#(8, addrWidth, 128, 0, 0, 0, 0, 0))
+         (AXI4_Slave#(8, addrWidth, 512, 0, 0, 0, 0, 0))
          provisos (Add#(wordAddrWidth, 4, addrWidth));
-  RegFile#(Bit#(wordAddrWidth), Bit#(128)) ram <- mkRegFileAssoc;
+  RegFile#(Bit#(wordAddrWidth), Bit#(512)) ram <- mkRegFileAssoc;
   let dram <- mkModelDRAMGeneric(maxOutstandingReqs, ram);
   return dram;
 endmodule

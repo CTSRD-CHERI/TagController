@@ -43,7 +43,7 @@ import FF::*;
 import Vector::*;
 import Bag::*;
 import VnD::*;
-import TagTableStructure::*;
+import PoisonTagTableStructure::*;
 `ifdef STATCOUNTERS
 import StatCounters::*;
 `elsif PERFORMANCE_MONITORING
@@ -161,7 +161,7 @@ module mkPoisonTagController(PoisonTagControllerIfc);
   // drain tag lookup responses out of the tag lookup engine
   rule getTagLookupResponse;
     CheriTagResponse tags <- tagLookup.cache.response.get();
-    debug2("tagcontroller", $display("<time %0t TagController> Completed lookup response: ", $time, fshow(tags)));
+    debug2("ptagcontroller", $display("<time %0t pTagController> Completed lookup response: ", $time, fshow(tags)));
     LookupReqInfo lookup = pendingLookups.first;
     lookupRsp.enq(lookup.id, LookupRspInfo{rsp: tags, tagOnlyRead: lookup.tagOnlyRead});
     pendingLookups.deq;
@@ -246,7 +246,7 @@ module mkPoisonTagController(PoisonTagControllerIfc);
         Bit#(TLog#(CpuLineSize)) zero = 0;
         lineAlignedAddr = {truncateLSB(lineAlignedAddr),zero};
         CheriTagRequest tagReq = CheriTagRequest {addr: unpack(lineAlignedAddr), operation: tagged Read};
-        debug2("tagcontroller", $display("<time %0t TagController> New request: ", $time, fshow(req)));
+        debug2("ptagcontroller", $display("<time %0t pTagController> New request: ", $time, fshow(req)));
         if (req.operation matches tagged Write .wop &&& req.addr >= unpack(fromInteger(table_start_addr)) && req.addr < unpack(fromInteger(table_end_addr))) begin
           req.operation = tagged Write {
               uncached: wop.uncached,
@@ -298,15 +298,17 @@ module mkPoisonTagController(PoisonTagControllerIfc);
               newTagWrite.writeEnable[tagOffsetInLine + ibit] = (capBEs == 0) ? False:True;
               bot = bot + valueOf(CapBytes);
             end
-            Vector#(2, Bool) poison_state = unpack(1);//2'b01
+            /*
+            Vector#(4, Bool) poison_state = unpack(1);//2'b01
             if(req.isPoisoned ==1'b1) begin 
               newTagWrite.tags = poison_state;
               newTagWrite.writeEnable = unpack(3);
             end 
+            */
             if (getLastField(req)) begin
               tagReq.operation = tagged Write newTagWrite;
               tagLookup.cache.request.put(tagReq);
-              debug2("tagcontroller", $display("<time %0t TagController> Injected Write Lookup: ", $time, fshow(tagReq)));
+              debug2("ptagcontroller", $display("<time %0t pTagController> Injected Write Lookup: ", $time, fshow(tagReq)));
               newTagWrite = unpack(0);
             end
             tagWrite <= newTagWrite;
@@ -337,7 +339,7 @@ module mkPoisonTagController(PoisonTagControllerIfc);
             memoryResponseFrame <= 0;  // reset the current frame
           end else memoryResponseFrame <= memoryResponseFrame + 1; // for non last flits, increment frame
         end else memoryResponseFrame <= 0;
-        debug2("tagcontroller", $display("<time %0t TagController> Returning response: ", $time, fshow(resp)));
+        debug2("ptagcontroller", $display("<time %0t pTagController> Returning response: ", $time, fshow(resp)));
         return resp;
       endmethod
     endinterface
@@ -358,18 +360,20 @@ module mkPoisonTagController(PoisonTagControllerIfc);
         else let unused <- tagLookup.memory.request.get();
         VnD#(LookupRspInfo) tagLookUpRsp = lookupRsp.first(getReqId(mReqs.first));
         Bool mreq_canceled =False;
+        /*
         case (tagLookUpRsp.d.rsp.tags) matches
           tagged Covered .ts : begin
             if(mReqs.first.operation matches tagged Read .rop)
               if (ts[0]  ) mreq_canceled = True;
           end
         endcase
+        */
         CheriMemRequest returned_mreq = memoryGetPeek;
         if(mreq_canceled) begin 
           returned_mreq.cancelled =True;
-          debug2("tagcontroller", $display("<time %0t TagController> memory request needs to be cancelled: ", $time, mReqBurst.notEmpty, " ", fshow(returned_mreq)));
+          debug2("ptagcontroller", $display("<time %0t pTagController> memory request needs to be cancelled: ", $time, mReqBurst.notEmpty, " ", fshow(returned_mreq)));
         end 
-        debug2("tagcontroller", $display("<time %0t TagController> request to memory (ForwardingMemoryRequest:%d): ", $time, mReqBurst.notEmpty, " ", fshow(returned_mreq)));
+        debug2("ptagcontroller", $display("<time %0t pTagController> request to memory (ForwardingMemoryRequest:%d): ", $time, mReqBurst.notEmpty, " ", fshow(returned_mreq)));
 
         return returned_mreq;
       endmethod
@@ -380,13 +384,13 @@ module mkPoisonTagController(PoisonTagControllerIfc);
       endmethod
       method Action put(CheriMemResponse r);
         MemReqType reqType = (r.masterID == mID) ? TagLookupReq : StdReq;
-        debug2("tagcontroller", $display("<time %0t TagController> response from memory: ", $time, fshow(reqType), " ", fshow(r)));
+        debug2("ptagcontroller", $display("<time %0t pTagController> response from memory: ", $time, fshow(reqType), " ", fshow(r)));
         if (reqType == TagLookupReq) begin
           tagLookup.memory.response.put(r);
-          debug2("tagcontroller", $display("<time %0t TagController> tag response", $time));
+          debug2("ptagcontroller", $display("<time %0t pTagController> tag response", $time));
         end else begin
           mRsps.enq(r);
-          debug2("tagcontroller", $display("<time %0t TagController> memory response", $time));
+          debug2("ptagcontroller", $display("<time %0t pTagController> memory response", $time));
         end
       endmethod
     endinterface

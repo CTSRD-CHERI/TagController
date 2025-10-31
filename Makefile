@@ -38,7 +38,7 @@ BLUESTUFF_DIRS = $(BLUESTUFFDIR):$(BLUEAXI4DIRS):$(BLUEBASICSDIR):$(BLUEUTILSDIR
 
 BSVPATH = +:$(BLUESTUFF_DIRS):Test:Test/bluecheck:TagController:PoisonTagController:TagController/CacheCore
 
-BSCFLAGS = -p $(BSVPATH) -D MEM128 -D CAP128 -D BLUESIM -D POISON -keep-fires  -aggressive-conditions
+BSCFLAGS = -p $(BSVPATH) -D MEM512 -D CAP128 -D BLUESIM -D POISON  -keep-fires  -aggressive-conditions
 CAPSIZE = 128
 TAGS_STRUCT = 0 128
 TAGS_ALIGN = 16

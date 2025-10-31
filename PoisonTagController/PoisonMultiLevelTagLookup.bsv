@@ -35,7 +35,7 @@ import ConfigReg::*;
 import CacheCore::*;
 import DefaultValue::*;
 import Printf::*;
-import TagTableStructure::*;
+import PoisonTagTableStructure::*;
 `ifdef STATCOUNTERS
 import StatCounters::*;
 `endif
@@ -44,7 +44,7 @@ import MultiLevelTagLookup::*;
 
 // interface types
 ///////////////////////////////////////////////////////////////////////////////
-typedef Vector#(TDiv#(CpuLineSize, 32),Bool) LineTags;
+typedef Vector#(TDiv#(CpuLineSize, CapBytes),Bool) LineTags;
 
 typedef struct {
   LineTags tags;
@@ -362,13 +362,13 @@ module mkPoisonMultiLevelTagLookup #(
     Bool useRsp
     ) = action
     debug2("ptaglookup",
-      $display("<time %0t TagLookup> table structure -", $time, fshow(tableDesc)
+      $display("<time %0t ptaglookup> table structure -", $time, fshow(tableDesc)
     ));
     case (mmr) matches
       tagged Valid .mr: begin
         // send the tag cache request and increment the transaction number
         debug2("ptaglookup",
-          $display("<time %0t TagLookup> sending lookup: ",
+          $display("<time %0t ptaglookup> sending lookup: ",
           $time, fshow(mr)
         ));
         tagCacheReq.enq(mr);
@@ -381,7 +381,7 @@ module mkPoisonMultiLevelTagLookup #(
     // do state transistion
     state <= newState;
     debug2("ptaglookup",
-      $display("<time %0t TagLookup> pendingCapNumber %x, currentDepth %d -> %d, state ",
+      $display("<time %0t ptaglookup> pendingCapNumber %x, currentDepth %d -> %d, state ",
       $time, pendingCapNumber, currentDepth, newDepth, fshow(state), " -> ", fshow(newState)
     ));
   endaction;
@@ -426,7 +426,7 @@ module mkPoisonMultiLevelTagLookup #(
         useNextRsp.enq(False);
         debug2("ptaglookup",
           $display(
-          "<time %0t TagLookup> zeroing tag table toplevel: ",
+          "<time %0t ptaglookup> zeroing tag table toplevel: ",
           $time, fshow(mReq)
         ));
         // increment transaction number and address
@@ -450,7 +450,7 @@ module mkPoisonMultiLevelTagLookup #(
     useNextRsp.deq();
     debug2("ptaglookup",
       $display(
-      "<time %0t TagLookup> Dequed memory request, getReq: %x, useNextRsp: %x, state: ",
+      "<time %0t ptaglookup> Dequed memory request, getReq: %x, useNextRsp: %x, state: ",
       $time, getReq, useNextRsp.first(), fshow(state)
     ));
   endrule
@@ -469,7 +469,7 @@ module mkPoisonMultiLevelTagLookup #(
     //CheriMemResponse memRsp <- tagCache.response.get();
     debug2("ptaglookup",
       $display(
-      "<time %0t TagLookup> memRsp valid: %x, current memRsp ",
+      "<time %0t ptaglookup> memRsp valid: %x, current memRsp ",
       $time, tagCache.response.canGet(), fshow(memRsp)
     ));
     // current tag table entry
@@ -496,7 +496,7 @@ module mkPoisonMultiLevelTagLookup #(
               // early 0
               debug2("ptaglookup",
                 $display(
-                "<time %0t TagLookup> ReadTag 0 early response (currentDepth %d)",
+                "<time %0t ptaglookup> ReadTag 0 early response (currentDepth %d)",
                 $time, currentDepth
               ));
               // enqueue a 0 response
@@ -507,7 +507,7 @@ module mkPoisonMultiLevelTagLookup #(
               // tag 1, need new lookup ("recursive state")
               debug2("ptaglookup",
                 $display(
-                "<time %0t TagLookup> ReadTag 1 (currentDepth %d)",
+                "<time %0t ptaglookup> ReadTag 1 (currentDepth %d)",
                 $time, currentDepth
               ));
               // request next table entry
@@ -519,7 +519,7 @@ module mkPoisonMultiLevelTagLookup #(
             // Reached a Leaf of the table, return lookup
             debug2("ptaglookup",
               $display(
-              "<time %0t TagLookup> ReadTag leaf node reached (currentDepth %d) : %b",
+              "<time %0t ptaglookup> ReadTag leaf node reached (currentDepth %d) : %b",
               $time, currentDepth, ts
             ));
             // enqueue the lookup response
@@ -540,7 +540,7 @@ module mkPoisonMultiLevelTagLookup #(
             tagged Valid tableDesc[currentDepth] : tagged Invalid;
         if (needZeros matches tagged Valid .t) debug2("ptaglookup",
           $display(
-          "<time %0t TagLookup> SetTag 0 -> 1 transition detected at depth %d",
+          "<time %0t ptaglookup> SetTag 0 -> 1 transition detected at depth %d",
           $time, currentDepth
         ));
         // transition behaviour
@@ -574,7 +574,7 @@ module mkPoisonMultiLevelTagLookup #(
           tagged Node .t &&& (t == False): begin
             debug2("ptaglookup",
               $display(
-                "<time %0t TagLookup> early 0 clearing tag",
+                "<time %0t ptaglookup> early 0 clearing tag",
                 $time
             ));
             newState = Idle;
@@ -583,7 +583,7 @@ module mkPoisonMultiLevelTagLookup #(
           tagged Node .t &&& (t == True): begin
             debug2("ptaglookup",
               $display(
-                "<time %0t TagLookup> found 1 when clearing tag, keep going down...",
+                "<time %0t ptaglookup> found 1 when clearing tag, keep going down...",
                 $time
             ));
             // update the already looked up tags
@@ -652,7 +652,7 @@ module mkPoisonMultiLevelTagLookup #(
       method Action put(CheriTagRequest req) if (state == Idle);
         debug2("ptaglookup",
           $display(
-            "<time %0t TagLookup> received request ",
+            "<time %0t ptaglookup> received request ",
             $time, fshow(req)
         ));
         // next state to go to
@@ -711,7 +711,7 @@ module mkPoisonMultiLevelTagLookup #(
           pendingCapEnable <= newPendingCapEnable;
           debug2("ptaglookup",
             $display(
-              "<time %0t TagLookup> Starting lookup with capNum = ",
+              "<time %0t ptaglookup> Starting lookup with capNum = ",
               $time, fshow(capAddr.capNumber),
               " ( pending tags = ", fshow(newPendingTags),
               ", pending cap enable = ",fshow(newPendingCapEnable)," )"
@@ -719,7 +719,7 @@ module mkPoisonMultiLevelTagLookup #(
           doTransition(tagged Valid mReq,rootLvl,nextState,True);
         end else debug2("ptaglookup",
           $display(
-            "<time %0t TagLookup> memory not covered",
+            "<time %0t ptaglookup> memory not covered",
             $time
         ));
       endmethod
@@ -745,7 +745,7 @@ module mkPoisonMultiLevelTagLookup #(
         // debug msg and return response
         debug2("ptaglookup",
           $display(
-            "<time %0t TagLookup> got valid lookup response ",
+            "<time %0t ptaglookup> got valid lookup response ",
             $time, fshow(tr)
         ));
         return tr;
