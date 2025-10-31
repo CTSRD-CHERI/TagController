@@ -179,6 +179,7 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
   AXI4_Shim#(SizeOf#(ReqId), addr_, Wd_Data, 0, 0, 0, 0, 0) shimMaster <- mkAXI4ShimBypassFIFOF;
   let awreqff <- mkFIFOF;
   FF#(CheriMemResponse, TMul#(MaxBurstLength, InFlight)) poison_mRsps <- mkUGFFDebug("TagController_poison_mRsps");
+  FF#(CheriMemResponse, TMul#(MaxBurstLength, InFlight)) poison_tagRsps <- mkUGFFDebug("TagController_poison_mRsps");
 
   Reg#(Bit#(addr_)) addrOffset <- mkReg(0);
   Reg#(Bool) writeBurst <- mkReg(False);
@@ -212,6 +213,7 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
     end
     awreq.awaddr = awreq.awaddr + addrOffset;
     let mreq = axi2mem_req(Write(WriteReqFlit{aw: awreq, w: wreq}));
+    mreq.isPoisoned = 1'b0;
 `ifdef POISON
     if(awreq.awuser == 4'b1) begin 
       let pmreq = mreq;
@@ -230,6 +232,14 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
       debug2("tagcontroller", $display("Poison TagController write request ", fshow(awreq), " - ", fshow(wreq)));
     end else begin 
 `endif 
+      let rsp = CheriMemResponse{
+        masterID: mreq.masterID,
+        transactionID: mreq.transactionID,
+        error: NoError,
+        data: unpack(0),
+        operation: tagged Write
+      };
+      poison_tagRsps.enq(rsp);
       tagCon.cache.request.put(mreq);
       debug2("tagcontroller", $display("TagController write request ", fshow(awreq), " - ", fshow(wreq)));
 `ifdef POISON
@@ -256,8 +266,16 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
     CheriMemResponse mr  <- tagCon.cache.response.get();
     AXI_Helpers::MemRsp#(id_) ar  = mem2axi_rsp(mr);
 `ifdef POISON
-    CheriMemResponse pmr <- ptagCon.cache.response.get();
-    AXI_Helpers::MemRsp#(id_) poison_ar = mem2axi_rsp(pmr);
+    CheriMemResponse pmr ;
+    AXI_Helpers::MemRsp#(id_) poison_ar ; 
+    if(poison_tagRsps.notEmpty) begin 
+      pmr = poison_tagRsps.first();
+      poison_tagRsps.deq();
+      poison_ar = mem2axi_rsp(pmr);
+    end else begin 
+      pmr <- ptagCon.cache.response.get();
+      poison_ar = mem2axi_rsp(pmr);
+    end 
     
     case(poison_ar) matches
       tagged Write .w :
