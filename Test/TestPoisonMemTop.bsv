@@ -41,11 +41,12 @@ module [Module] mkTestPoisonMemTopSingle (Empty);
     if(counter < 1280) 
       counter <= counter+1;
     if(counter ==1) begin 
-      dutClient.store(unpack({4'b1, 13'b0000}), unpack(0));
+      dutClient.store(unpack({4'b1, 13'b0000}), unpack(0), False);
       //dutClient.load( unpack(0));
     end 
     else if (counter ==1280 ) begin
       state <= WaitWriteResponse;
+      dutClient.store(unpack({4'b1, 13'b0000}), unpack(0), True);
     end 
       //dutClient.load( unpack(0));
     //if(dutClient.canGetResponse()) begin
@@ -59,6 +60,7 @@ module [Module] mkTestPoisonMemTopSingle (Empty);
     counter <= 0;
     //let resp <- dutClient.getResponse();
     // //if(dutClient.canGetResponse)
+    
     state <= ReadTag;
   endrule 
 

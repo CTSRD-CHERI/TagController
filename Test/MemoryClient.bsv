@@ -66,7 +66,7 @@ interface MemoryClient;
   method Action load(Addr addr);
 
   // Store data to address
-  method Action store(Data data, Addr addr);
+  method Action store(Data data, Addr addr, Bool mode);
 
   // Get response
   method ActionValue#(MemoryClientResponse) getResponse;
@@ -120,7 +120,7 @@ endfunction
 // Functions ==================================================================
 
 // Convert from Data to 64-bit data
-function Tuple2#(Bit#(4), Bit#(512)) fromData(Data x) = tuple2(x[16:13],zeroExtend(x));
+function Tuple2#(Bit#(4), Bit#(512)) fromData(Data x) = tuple2(x[16:13],zeroExtend(x[12:0]));
 
 // Convert from 64-bit data to Data
 function Data toData(Bit#(4) t, Bit#(512) d) = {t, d[12:0]};
@@ -212,7 +212,7 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 512, 4, CapsPerFlit, 0, 1
       });
     endaction;
 
-  function Action storeGeneric(Data data, Addr addr) =
+  function Action storeGeneric(Data data, Addr addr, Bool mode) =
     action
       Bit#(64) fullAddr = fromAddr(addr, addrMap);
       AXI4_AWFlit#(idWidth, addrWidth, 4) addrReq = defaultValue;
@@ -220,7 +220,8 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 512, 4, CapsPerFlit, 0, 1
       idCount <= idCount + 1;
       addrReq.awcache = 4'b1011;
       addrReq.awaddr = truncate(fullAddr);
-      addrReq.awuser = 4'b1;
+      if (mode == False) addrReq.awuser = 4'b0001;
+      else addrReq.awuser = 4'b0010;
       axiSlave.aw.put(addrReq);
 
       AXI4_WFlit#(512, 4) dataReq = defaultValue;
@@ -241,8 +242,8 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 512, 4, CapsPerFlit, 0, 1
   endmethod
 
   // Store data to address
-  method Action store(Data data, Addr addr);
-    storeGeneric(data, addr);
+  method Action store(Data data, Addr addr, Bool mode);
+    storeGeneric(data, addr, mode);
   endmethod
 
   // Responses
@@ -306,7 +307,7 @@ module mkMemoryClientGolden (MemoryClient);
   endmethod
 
   // Store data to address
-  method Action store(Data data, Addr addr) if (!init);
+  method Action store(Data data, Addr addr, Bool mode) if (!init);
     if (addr.dword == 1)
       memB.upd(addr.addr, data);
     else

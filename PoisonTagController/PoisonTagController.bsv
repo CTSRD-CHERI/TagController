@@ -245,7 +245,7 @@ module mkPoisonTagController(PoisonTagControllerIfc);
         let lineAlignedAddr = pack(req.addr);
         Bit#(TLog#(CpuLineSize)) zero = 0;
         lineAlignedAddr = {truncateLSB(lineAlignedAddr),zero};
-        CheriTagRequest tagReq = CheriTagRequest {addr: unpack(lineAlignedAddr), operation: tagged Read};
+        CheriTagRequest tagReq = CheriTagRequest {addr: unpack(lineAlignedAddr), operation: tagged Read, poison_operation: req.poison_operation};
         debug2("ptagcontroller", $display("<time %0t pTagController> New request: ", $time, fshow(req)));
         if (req.operation matches tagged Write .wop &&& req.addr >= unpack(fromInteger(table_start_addr)) && req.addr < unpack(fromInteger(table_end_addr))) begin
           req.operation = tagged Write {
@@ -264,9 +264,9 @@ module mkPoisonTagController(PoisonTagControllerIfc);
             tagOnlyRead = True;
         end
         // We only enqueue request to DRAM if this is not a tagOnlyRead
-        Bool canDoEnq = !tagOnlyRead && req.isPoisoned != 1'b1;
+        Bool canDoEnq = !tagOnlyRead && req.poison_operation == 4'b0;
 `ifdef POISON
-        if (req.isPoisoned ==1'b1) 
+        if (req.poison_operation == 4'b1) 
           $display("tagcontroller req is poisoned, cancelled");
 `endif 
         if (canDoEnq) begin

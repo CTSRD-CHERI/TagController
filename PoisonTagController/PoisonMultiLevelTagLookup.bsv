@@ -53,6 +53,7 @@ typedef struct {
 
 typedef struct {
   CheriPhyAddr addr;
+  Bit#(4) poison_operation;
   union tagged {
     void Read;
     CheriTagWrite Write;
@@ -79,7 +80,7 @@ endinterface
 // internal types
 ///////////////////////////////////////////////////////////////////////////////
 
-typedef enum {Init, Idle, ReadTag, SetTag, ClearTag, FoldZeroes} State deriving (Bits, Eq, FShow);
+typedef enum {Init, Idle, ReadTag, SetTag, ZeroLeaf, ClearTag, FoldZeroes} State deriving (Bits, Eq, FShow);
 typedef TMul#(CapsPerFlit,4) CapsPerLine;
 
 typedef union tagged {
@@ -190,6 +191,9 @@ module mkPoisonMultiLevelTagLookup #(
   Reg#(State) state <- mkConfigReg(Init);
   // address to zero when in Init state
   Reg#(CheriPhyAddr) zeroAddr <- mkReg(tagTabStrtAddr);
+  Reg#(CheriPhyAddr) zeroTagAddr <- mkReg(tagTabStrtAddr);
+  Reg#(CheriPhyAddr) zeroLeaf_start_Addr <- mkReg(tagTabStrtAddr);
+
   // transaction number for memory requests
   Reg#(CheriTransactionID) transNum <- mkReg(0);
   // pending read requests fifo covered or not
@@ -393,7 +397,39 @@ module mkPoisonMultiLevelTagLookup #(
 
   // module rules
   /////////////////////////////////////////////////////////////////////////////
+  rule zeroLeafLoop(state ==ZeroLeaf);
+    TableLvl t = tableDesc[leafLvl];
+    $display("zeroLeafLoop start");
+    if (zeroTagAddr < unpack(pack(zeroLeaf_start_Addr) + fromInteger(4096))) begin
+      CheriMemRequest mReq = defaultValue;
+      mReq.addr            = zeroTagAddr;
+      mReq.masterID        = mID;
+      mReq.transactionID   = transNum;
+      mReq.operation       = tagged Write {
+                                      uncached: False,
+                                      conditional: False,
+                                      byteEnable: unpack(-1),
+                                      bitEnable: -1,
+                                      data: unpack(0),
+                                      length: 0,
+                                      last: True
+                                    };
+      // send memory request
+      tagCacheReq.enq(mReq);
+      useNextRsp.enq(False);
+      debug2("ptaglookup",
+        $display(
+        "<time %0t ptaglookup> zeroing tag table leafLevel: ",
+        $time, fshow(mReq)
+      ));
+      // increment transaction number and address
+      transNum <= transNum + 1;
+      zeroTagAddr.lineNumber <= zeroTagAddr.lineNumber + 1;
 
+    end else begin 
+      state <= Idle;
+    end 
+  endrule 
   // initialisation rule
   /////////////////////////////////////////////////////////////////////////////
   rule initialise (state == Init);
@@ -467,11 +503,11 @@ module mkPoisonMultiLevelTagLookup #(
       memRspReady = useNextRsp.first;
     CheriMemResponse memRsp = tagCache.response.peek();
     //CheriMemResponse memRsp <- tagCache.response.get();
-    debug2("ptaglookup",
-      $display(
-      "<time %0t ptaglookup> memRsp valid: %x, current memRsp ",
-      $time, tagCache.response.canGet(), fshow(memRsp)
-    ));
+    //debug2("ptaglookup",
+    //  $display(
+    //  "<time %0t ptaglookup> memRsp valid: %x, current memRsp ",
+    //  $time, tagCache.response.canGet(), fshow(memRsp)
+    //));
     // current tag table entry
     Bit#(CheriDataWidth) rspData = memRsp.data.data;
     TableEntry tagTableEntry = getTableEntry(currentDepth, pendingCapNumber, rspData);
@@ -694,8 +730,17 @@ module mkPoisonMultiLevelTagLookup #(
               nextState = ClearTag;
             end else begin
               // when writing at least a 1
-              mReq = craftTagWriteReq(rootLvl,capAddr.capNumber,capTags,capEnable,tagged Invalid);
-              nextState = SetTag;
+              if(req.poison_operation == 4'b0010) begin 
+                
+                state <= ZeroLeaf;
+                zeroTagAddr <=  getTableAddr(leafLvl,capAddr.capNumber).byteAddr;
+                zeroLeaf_start_Addr <= getTableAddr(leafLvl,capAddr.capNumber).byteAddr;
+                $display("zeroLeaf request", getTableAddr(leafLvl,capAddr.capNumber).byteAddr);
+                doTagLookup = False;
+              end else begin 
+                mReq = craftTagWriteReq(rootLvl,capAddr.capNumber,capTags,capEnable,tagged Invalid);
+                nextState = SetTag;
+              end 
             end
           end
           // ignore other types of requests
