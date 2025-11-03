@@ -27,7 +27,7 @@
 // 2025-10-29 21:35:36.001325
 
 import Vector::*;
-Vector#(2, Integer) tableStructure = cons(0, cons(512, nil));
+Vector#(2, Integer) tableStructure = cons(0, cons(64, nil));
 Integer table_end_addr = 'h16ffff000;
 Integer table_start_addr = 'h16e7cf100;
 Integer covered_start_addr = 'hc0000000;

@@ -298,13 +298,18 @@ module mkPoisonTagController(PoisonTagControllerIfc);
               newTagWrite.writeEnable[tagOffsetInLine + ibit] = (capBEs == 0) ? False:True;
               bot = bot + valueOf(CapBytes);
             end
-            /*
-            Vector#(4, Bool) poison_state = unpack(1);//2'b01
-            if(req.isPoisoned ==1'b1) begin 
-              newTagWrite.tags = poison_state;
+            
+            if(req.poison_operation ==4'b0001) begin //poisoned 
+              newTagWrite.tags = unpack(1);
+              newTagWrite.writeEnable = unpack(3);
+            end else if (req.poison_operation ==4'b0010) begin  //old poisoned
+              newTagWrite.tags = unpack(2);
+              newTagWrite.writeEnable = unpack(3);
+            end else if (req.poison_operation == 4'b0011) begin //zeroed 
+              newTagWrite.tags = unpack(3);
               newTagWrite.writeEnable = unpack(3);
             end 
-            */
+            
             if (getLastField(req)) begin
               tagReq.operation = tagged Write newTagWrite;
               tagLookup.cache.request.put(tagReq);

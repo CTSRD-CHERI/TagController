@@ -220,6 +220,8 @@ module mkPoisonMultiLevelTagLookup #(
   Reg#(CapNumber) pendingCapNumber <- mkReg(unpack(0));
   Reg#(LineTags) pendingTags <- mkReg(unpack(0));
   Reg#(LineTags) pendingCapEnable <- mkReg(unpack(0));
+
+  Reg#(Bit#(2))  leafUpdateTags <-mkReg(0);
   Vector#(tdepth,Reg#(Bit#(CheriDataWidth))) oldTags <- replicateM(mkReg(unpack(0)));
 
   // module helper functions
@@ -410,7 +412,7 @@ module mkPoisonMultiLevelTagLookup #(
                                       conditional: False,
                                       byteEnable: unpack(-1),
                                       bitEnable: -1,
-                                      data: unpack(0),
+                                      data: unpack(extend(leafUpdateTags)),
                                       length: 0,
                                       last: True
                                     };
@@ -733,8 +735,9 @@ module mkPoisonMultiLevelTagLookup #(
               if(req.poison_operation == 4'b0010) begin 
                 
                 state <= ZeroLeaf;
-                zeroTagAddr <=  getTableAddr(leafLvl,capAddr.capNumber).byteAddr;
+                zeroTagAddr <= getTableAddr(leafLvl,capAddr.capNumber).byteAddr;
                 zeroLeaf_start_Addr <= getTableAddr(leafLvl,capAddr.capNumber).byteAddr;
+                leafUpdateTags <= 2'b10;
                 $display("zeroLeaf request", getTableAddr(leafLvl,capAddr.capNumber).byteAddr);
                 doTagLookup = False;
               end else begin 

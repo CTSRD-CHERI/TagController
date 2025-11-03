@@ -45,8 +45,9 @@ module [Module] mkTestPoisonMemTopSingle (Empty);
       //dutClient.load( unpack(0));
     end 
     else if (counter ==1280 ) begin
+      //dutClient.store_simple(unpack({4'b1, 13'b0000}), unpack(64), False);
       state <= WaitWriteResponse;
-      //dutClient.store(unpack({4'b1, 13'b0000}), unpack(0), True);
+      dutClient.store(unpack({4'b1, 13'b0000}), unpack(0), True);
     end 
       //dutClient.load( unpack(0));
     //if(dutClient.canGetResponse()) begin
@@ -68,7 +69,7 @@ module [Module] mkTestPoisonMemTopSingle (Empty);
     counter <= counter+1;
     if(counter ==1) begin 
       //dutClient.load( unpack(5'b00001));
-      dutClient.load_simple( 8'b0110000);
+      dutClient.load_simple( 8'b0000000);
       //dutClient.store(unpack({1'b1, 16'b0000}), unpack(0));
       $display("read_req ");
     end 
