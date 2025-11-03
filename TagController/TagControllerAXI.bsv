@@ -215,11 +215,9 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
     end
     awreq.awaddr = awreq.awaddr + addrOffset;
     let mreq = axi2mem_req(Write(WriteReqFlit{aw: awreq, w: wreq}));
-    mreq.isPoisoned = 1'b0;
+    mreq.poison_operation = 4'b0;
 `ifdef POISON
-    if(awreq.awuser == 4'b1) begin 
-      let pmreq = mreq;
-      pmreq.isPoisoned = 1'b1;
+    let pmreq = mreq;
       let rsp = CheriMemResponse{
         masterID: mreq.masterID,
         transactionID: mreq.transactionID,
@@ -227,10 +225,18 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
         data: ?,
         operation: tagged Write
       };
+    if(awreq.awuser == 4'b1) begin 
+      pmreq.poison_operation = 4'b1;
       poison_mRsps.enq(rsp);
       ptagCon.cache.request.put(pmreq);
       dummy_tagRsps.enq(rsp);
       debug2("tagcontroller", $display("Poison TagController write request ", fshow(awreq), " - ", fshow(wreq)));
+    end else if (awreq.awuser == 4'b0010) begin 
+      poison_mRsps.enq(rsp);
+      pmreq.poison_operation = 4'b0010;
+      ptagCon.cache.request.put(pmreq);
+      dummy_tagRsps.enq(rsp);
+      debug2("tagcontroller", $display("Poison TagController zero poison request ", fshow(awreq), " - ", fshow(wreq)));      
     end else begin 
 `endif 
       let rsp = CheriMemResponse{

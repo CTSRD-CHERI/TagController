@@ -64,7 +64,7 @@ interface MemoryClient;
 
   // Load value at address
   method Action load(Addr addr);
-
+  method Action load_simple(Bit#(8) addr);
   // Store data to address
   method Action store(Data data, Addr addr, Bool mode);
 
@@ -241,6 +241,20 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 512, 4, CapsPerFlit, 0, 1
     loadGeneric(addr);
   endmethod
 
+  method Action load_simple(Bit#(8) addr);
+    Bit#(64) fullAddr = 64'hC0000000+ extend(addr);
+    AXI4_ARFlit#(idWidth, addrWidth, 1) addrReq = defaultValue;
+    addrReq.arid = truncate(idCount);
+    idCount <= idCount + 1;
+    addrReq.araddr = truncate(fullAddr);
+    addrReq.arsize = 16;
+    addrReq.arcache = 4'b1011;
+    axiSlave.ar.put(addrReq);
+    outstandingFIFO.enq(OutstandingMemInstr{
+      isLoad: True,
+      lowAddr: fullAddr[7:0]
+    });
+  endmethod
   // Store data to address
   method Action store(Data data, Addr addr, Bool mode);
     storeGeneric(data, addr, mode);

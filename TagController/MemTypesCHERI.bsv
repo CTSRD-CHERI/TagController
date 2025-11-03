@@ -257,7 +257,7 @@ typedef struct {
     transactionid_t transactionID;
     // This operation should not cause side effects.
     Bool cancelled;
-    Bit#(1) isPoisoned;
+    Bit#(4) poison_operation;
     // operation to be performed by the request
     union tagged {
         // read operation

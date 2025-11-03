@@ -38,7 +38,7 @@ BLUESTUFF_DIRS = $(BLUESTUFFDIR):$(BLUEAXI4DIRS):$(BLUEBASICSDIR):$(BLUEUTILSDIR
 
 BSVPATH = +:$(BLUESTUFF_DIRS):Test:Test/bluecheck:TagController:PoisonTagController:TagController/CacheCore
 
-BSCFLAGS = -p $(BSVPATH) -D MEM512 -D CAP128 -D BLUESIM -D POISON  -keep-fires  -aggressive-conditions
+BSCFLAGS = -p $(BSVPATH) -D MEM512 -D CAP128 -D BLUESIM -D POISON  -keep-fires  -aggressive-conditions 
 CAPSIZE = 128
 TAGS_STRUCT = 0 128
 TAGS_ALIGN = 16
@@ -61,7 +61,7 @@ BSCFLAGS += -show-range-conflict
 #BSCFLAGS += -steps-warn-interval n
 BSCFLAGS += -D CheriMasterIDWidth=4
 BSCFLAGS += -D CheriTransactionIDWidth=4
-BSCFLAGS += +RTS -K33554432 -RTS
+BSCFLAGS += +RTS -K512M -RTS
 BSCFLAGS += -suppress-warnings T0127:S0080 # no orphan typeclass warning
 
 TESTSDIR = Test
