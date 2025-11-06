@@ -41,7 +41,7 @@ module [Module] mkTestPoisonMemTopSingle (Empty);
     if(counter < 1280) 
       counter <= counter+1;
     if(counter ==1) begin 
-      dutClient.store_simple(unpack({4'b1, 13'b0000}), unpack(4096), 2'b01);
+      dutClient.store_simple(unpack({4'b1, 13'b0000}), unpack(0), 2'b01);
       //dutClient.load( unpack(0));
     end 
     else if (counter ==1280 ) begin
@@ -77,6 +77,7 @@ module [Module] mkTestPoisonMemTopSingle (Empty);
     end 
     if (counter ==600) begin
       state <= WaitReadResponse;
+      //dutClient.load_simple( unpack(4096));
     end 
   endrule 
 //

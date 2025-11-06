@@ -402,7 +402,7 @@ module mkPoisonMultiLevelTagLookup #(
   rule zeroLeafLoop(state ==ZeroLeaf);
     TableLvl t = tableDesc[leafLvl];
     $display("zeroLeafLoop start");
-    if (zeroTagAddr < unpack(pack(zeroLeaf_start_Addr) + fromInteger(512))) begin
+    if (zeroTagAddr < unpack(pack(zeroLeaf_start_Addr) + fromInteger(1))) begin
       CheriMemRequest mReq = defaultValue;
       mReq.addr            = zeroTagAddr;
       mReq.masterID        = mID;

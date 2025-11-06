@@ -294,9 +294,9 @@ module mkPoisonTagController(PoisonTagControllerIfc);
             for (i = 0; i < valueOf(2); i = i + 1) begin
               PoisonCapOffsetInLine ibit = fromInteger(i);
               newTagWrite.tags[tagOffsetInLine + ibit] = wop.data.cap[i];
-              Bit#(TMin#(CheriBusBytes, CapBytes)) capBEs = pack(wop.byteEnable)[bot+valueOf(TMin#(CheriBusBytes, CapBytes))-1:bot];
+              Bit#(TMin#(CheriBusBytes, PoisonCapBytes)) capBEs = pack(wop.byteEnable)[bot+valueOf(TMin#(CheriBusBytes, PoisonCapBytes))-1:bot];
               newTagWrite.writeEnable[tagOffsetInLine + ibit] = (capBEs == 0) ? False:True;
-              bot = bot + valueOf(CapBytes);
+              bot = bot + valueOf(PoisonCapBytes);
             end
             
             if(req.poison_operation ==4'b0001) begin //poisoned 
