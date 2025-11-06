@@ -44,7 +44,7 @@ import MultiLevelTagLookup::*;
 
 // interface types
 ///////////////////////////////////////////////////////////////////////////////
-typedef Vector#(TDiv#(CpuLineSize, CapBytes),Bool) LineTags;
+typedef Vector#(TDiv#(CpuLineSize, PoisonCapBytes),Bool) LineTags;
 
 typedef struct {
   LineTags tags;
@@ -138,7 +138,7 @@ module mkPoisonMultiLevelTagLookup #(
   function TableLvl lvlDesc (Integer d);
     Integer sz;
     // leaf lvl
-    sz = div(memCoveredSize,8*valueof(CapBytes));
+    sz = div(memCoveredSize,8*valueof(PoisonCapBytes));
     TableLvl tlvl = TableLvl {
           startAddr: unpack(pack(tagTabEndAddr)-fromInteger(sz)),
           size: sz,
@@ -217,11 +217,11 @@ module mkPoisonMultiLevelTagLookup #(
 
   // current lookup's depth
   Reg#(TDepth)    currentDepth     <- mkReg(unpack(0));
-  Reg#(CapNumber) pendingCapNumber <- mkReg(unpack(0));
+  Reg#(PoisonCapNumber) pendingCapNumber <- mkReg(unpack(0));
   Reg#(LineTags) pendingTags <- mkReg(unpack(0));
   Reg#(LineTags) pendingCapEnable <- mkReg(unpack(0));
 
-  Reg#(Bit#(2))  leafUpdateTags <-mkReg(0);
+  Reg#(Bit#(128))  leafUpdateTags <-mkReg(0);
   Vector#(tdepth,Reg#(Bit#(CheriDataWidth))) oldTags <- replicateM(mkReg(unpack(0)));
 
   // module helper functions
@@ -234,14 +234,14 @@ module mkPoisonMultiLevelTagLookup #(
     return r;
   endfunction
 
-  function CheriPhyBitAddr getTableAddr(TDepth cd, CapNumber cn);
+  function CheriPhyBitAddr getTableAddr(TDepth cd, PoisonCapNumber cn);
     TableLvl t = tableDesc[cd];
     CheriPhyBitAddr bitAddr = unpack(zeroExtend(cn >> t.shiftAmnt));
     bitAddr.byteAddr = unpack(pack(bitAddr.byteAddr) + pack(t.startAddr));
     return bitAddr;
   endfunction
 
-  function TableEntry getTableEntry(TDepth cd, CapNumber cn, Bit#(CheriDataWidth) tags);
+  function TableEntry getTableEntry(TDepth cd, PoisonCapNumber cn, Bit#(CheriDataWidth) tags);
     CheriPhyBitAddr a = getTableAddr(cd,cn);
     CheriPhyBitOffset bitOffset = truncate(pack(a));
     if (cd == leafLvl) begin
@@ -256,7 +256,7 @@ module mkPoisonMultiLevelTagLookup #(
   endfunction
 
   function Bit#(CheriDataWidth) getOldTagsEntry (
-      CapNumber cn,
+      PoisonCapNumber cn,
       Bit#(CheriDataWidth) tags,
       TDepth cd);
     TableLvl t = (cd==rootLvl) ? tableDesc[leafLvl]:tableDesc[cd+1];
@@ -269,7 +269,7 @@ module mkPoisonMultiLevelTagLookup #(
 
   function Bit#(CheriDataWidth) getNewTagsEntry (
       TDepth cd,
-      CapNumber cn,
+      PoisonCapNumber cn,
       Vector#(howmanybits,Bool) ts,
       Vector#(howmanybits,Bool) ce,
       Bit#(CheriDataWidth) old);
@@ -286,7 +286,7 @@ module mkPoisonMultiLevelTagLookup #(
     return newTags;
   endfunction
 
-  function CheriMemRequest craftTagReadReq (TDepth d, CapNumber cn);
+  function CheriMemRequest craftTagReadReq (TDepth d, PoisonCapNumber cn);
     CheriPhyAddr a = getTableAddr(d,cn).byteAddr;
     CheriMemRequest mReq = defaultValue;
     mReq.addr            = a;
@@ -304,7 +304,7 @@ module mkPoisonMultiLevelTagLookup #(
 
   function CheriMemRequest craftTagWriteReq (
     TDepth d, // depth in the table
-    CapNumber cn, // capability number targetted
+    PoisonCapNumber cn, // capability number targetted
     Vector#(howmanybits,Bool) ts, // tags
     Vector#(howmanybits,Bool) ce, // "cap enable"
     Maybe#(TableLvl) nz); // need zeroing
@@ -402,7 +402,7 @@ module mkPoisonMultiLevelTagLookup #(
   rule zeroLeafLoop(state ==ZeroLeaf);
     TableLvl t = tableDesc[leafLvl];
     $display("zeroLeafLoop start");
-    if (zeroTagAddr < unpack(pack(zeroLeaf_start_Addr) + fromInteger(4096))) begin
+    if (zeroTagAddr < unpack(pack(zeroLeaf_start_Addr) + fromInteger(512))) begin
       CheriMemRequest mReq = defaultValue;
       mReq.addr            = zeroTagAddr;
       mReq.masterID        = mID;
@@ -410,7 +410,7 @@ module mkPoisonMultiLevelTagLookup #(
       mReq.operation       = tagged Write {
                                       uncached: False,
                                       conditional: False,
-                                      byteEnable: unpack(-1),
+                                      byteEnable: unpack(-1),//unpack(extend(64'hFFFFFFFFFFFFFFFF)),
                                       bitEnable: -1,
                                       data: unpack(extend(leafUpdateTags)),
                                       length: 0,
@@ -701,7 +701,7 @@ module mkPoisonMultiLevelTagLookup #(
         LineTags newPendingTags = unpack(0);
         LineTags newPendingCapEnable = unpack(0);
         // initialise a toplevel table lookup
-        CheriCapAddress capAddr = unpack(pack(req.addr) - pack(coveredStrtAddr));
+        CheriPoisonCapAddress capAddr = unpack(truncateLSB(pack(req.addr) - pack(coveredStrtAddr)));
         CheriMemRequest mReq = craftTagReadReq (rootLvl,capAddr.capNumber);
         case (req.operation) matches
           // when it's a read
@@ -737,7 +737,11 @@ module mkPoisonMultiLevelTagLookup #(
                 state <= ZeroLeaf;
                 zeroTagAddr <= getTableAddr(leafLvl,capAddr.capNumber).byteAddr;
                 zeroLeaf_start_Addr <= getTableAddr(leafLvl,capAddr.capNumber).byteAddr;
-                leafUpdateTags <= 2'b10;
+                Bit#(128) temp_tags =0; 
+                for (Integer i = 0; i < 64; i= i+ 1) begin 
+                  temp_tags[2*i+1:2*i] = 2'b10;
+                end 
+                leafUpdateTags <= temp_tags;
                 $display("zeroLeaf request", getTableAddr(leafLvl,capAddr.capNumber).byteAddr);
                 doTagLookup = False;
               end else begin 

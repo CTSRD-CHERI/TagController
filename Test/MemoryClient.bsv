@@ -64,10 +64,10 @@ interface MemoryClient;
 
   // Load value at address
   method Action load(Addr addr);
-  method Action load_simple(Bit#(8) addr);
-  method Action store_simple(Data data, Bit#(8) addr, Bool mode);
+  method Action load_simple(Bit#(32) addr);
+  method Action store_simple(Data data, Bit#(32) addr, Bit#(2) mode);
   // Store data to address
-  method Action store(Data data, Addr addr, Bool mode);
+  method Action store(Data data, Addr addr, Bit#(2) mode);
 
   // Get response
   method ActionValue#(MemoryClientResponse) getResponse;
@@ -213,7 +213,7 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 512, 4, CapsPerFlit, 0, 1
       });
     endaction;
 
-  function Action storeGeneric(Data data, Addr addr, Bool mode) =
+  function Action storeGeneric(Data data, Addr addr, Bit#(2) mode) =
     action
       Bit#(64) fullAddr = fromAddr(addr, addrMap);
       AXI4_AWFlit#(idWidth, addrWidth, 4) addrReq = defaultValue;
@@ -221,8 +221,7 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 512, 4, CapsPerFlit, 0, 1
       idCount <= idCount + 1;
       addrReq.awcache = 4'b1011;
       addrReq.awaddr = truncate(fullAddr);
-      if (mode == False) addrReq.awuser = 4'b0001;
-      else addrReq.awuser = 4'b0010;
+      addrReq.awuser = extend(mode);
       axiSlave.aw.put(addrReq);
 
       AXI4_WFlit#(512, 4) dataReq = defaultValue;
@@ -242,15 +241,14 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 512, 4, CapsPerFlit, 0, 1
     loadGeneric(addr);
   endmethod
 
-  method Action store_simple(Data data, Bit#(8) addr, Bool mode);
+  method Action store_simple(Data data, Bit#(32) addr, Bit#(2) mode);
     Bit#(64) fullAddr = 64'hC0000000+ extend(addr);
     AXI4_AWFlit#(idWidth, addrWidth, 4) addrReq = defaultValue;
     addrReq.awid = truncate(idCount);
     idCount <= idCount + 1;
     addrReq.awcache = 4'b1011;
     addrReq.awaddr = truncate(fullAddr);
-    if (mode == False) addrReq.awuser = 4'b0001;
-    else addrReq.awuser = 4'b0010;
+    addrReq.awuser = extend(mode);
     axiSlave.aw.put(addrReq);
     AXI4_WFlit#(512, 4) dataReq = defaultValue;
     match {.t, .d} = fromData(data);
@@ -263,7 +261,7 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 512, 4, CapsPerFlit, 0, 1
     });
   endmethod 
 
-  method Action load_simple(Bit#(8) addr);
+  method Action load_simple(Bit#(32) addr);
     Bit#(64) fullAddr = 64'hC0000000+ extend(addr);
     AXI4_ARFlit#(idWidth, addrWidth, 1) addrReq = defaultValue;
     addrReq.arid = truncate(idCount);
@@ -278,7 +276,7 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 512, 4, CapsPerFlit, 0, 1
     });
   endmethod
   // Store data to address
-  method Action store(Data data, Addr addr, Bool mode);
+  method Action store(Data data, Addr addr, Bit#(2) mode);
     storeGeneric(data, addr, mode);
   endmethod
 
@@ -343,7 +341,7 @@ module mkMemoryClientGolden (MemoryClient);
   endmethod
 
   // Store data to address
-  method Action store(Data data, Addr addr, Bool mode) if (!init);
+  method Action store(Data data, Addr addr, Bit#(2) mode) if (!init);
     if (addr.dword == 1)
       memB.upd(addr.addr, data);
     else

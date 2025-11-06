@@ -70,8 +70,7 @@ typedef MaxNoOfFlits CheriBurstSize;
 `endif
 
 `ifdef USECAP
-  typedef TDiv#(CapWidth,8) CapBytes;
-  typedef TDiv#(256,8) PoisonCapBytes;
+  typedef TDiv#(256,8) CapBytes;
 `endif
 
 typedef TExp#(16) BootMemBytes;
@@ -137,18 +136,14 @@ typedef 40 AddrWidth;
   typedef TMax#(TDiv#(CheriBusBytes,CapBytes),1) CapsPerFlit;
   typedef Vector#(CapsPerFlit,Bool) CapTags;
   typedef Bit#(TSub#(AddrWidth,TLog#(CapBytes))) CapNumber;
-  typedef Bit#(TSub#(AddrWidth,TLog#(PoisonCapBytes))) PoisonCapNumber;
+  typedef Bit#(TSub#(AddrWidth,TLog#(CpuLineSize))) PoisonCapNumber;
   typedef struct {
     CapNumber capNumber;
     Bit#(TLog#(CapBytes))           offset;
   } CheriCapAddress deriving (Bits, Eq, Bounded, FShow);
   typedef struct {
     PoisonCapNumber capNumber;
-    Bit#(TLog#(CapBytes))           offset;
-  } CheriPoisonCapAddress deriving (Bits, Eq, Bounded, FShow);
-  typedef struct {
-    PoisonCapNumber capNumber;
-    Bit#(TLog#(PoisonCapBytes))           offset;
+    Bit#(TLog#(CpuLineSize))           offset;
   } PoisonCheriCapAddress deriving (Bits, Eq, Bounded, FShow);
 `endif
 typedef TMul#(CheriBusBytes,8) CheriDataWidth;
@@ -166,7 +161,7 @@ typedef Bit#(TSub#(AddrWidth,TAdd#(TLog#(CheriBusBytes),2))) Line;
 
 typedef 64 CpuLineSize; // Largest line that we can serve tag transactions on.
 typedef Bit#(TLog#(TDiv#(CpuLineSize, CapBytes))) CapOffsetInLine;
-typedef Bit#(TLog#(TDiv#(CpuLineSize, PoisonCapBytes))) PoisonCapOffsetInLine;
+typedef Bit#(TLog#(TDiv#(CpuLineSize, CapBytes))) PoisonCapOffsetInLine;
 
 // bytes per flit
 typedef enum {
