@@ -1447,13 +1447,15 @@ module mkCacheCore#(Integer cacheId,
               if(req.poison_operation == 4'b0010) begin 
                 for (Integer j =0; j < valueOf(CheriDataWidth)/2; j= j + 1) begin 
                   Bit#(2) existing_tag = dataRead.data[2*j+1 : 2*j ];
-                  maskedWrite_updated.data[2*j+1 : 2*j ] = existing_tag == 2'b01 ? maskedWrite.data[2*j+1 : 2*j ] :existing_tag;
+                  Integer enableIndex = j/8;
+                  maskedWrite_updated.data[2*j+1 : 2*j ] = (existing_tag == 2'b01 && wop.byteEnable[enableIndex] )? maskedWrite.data[2*j+1 : 2*j ] :existing_tag;
                 end 
                 $display("cache core poison update", fshow(dataRead.data), fshow(maskedWrite_updated));
               end else if (req.poison_operation == 4'b0011) begin 
                 for (Integer j =0; j < valueOf(CheriDataWidth)/2; j= j + 1) begin 
                   Bit#(2) existing_tag = dataRead.data[2*j+1 : 2*j ];
-                  maskedWrite_updated.data[2*j+1 : 2*j ] = existing_tag == 2'b10 ? maskedWrite.data[2*j+1 : 2*j ] :existing_tag;
+                  Integer enableIndex = j/8;
+                  maskedWrite_updated.data[2*j+1 : 2*j ] = (existing_tag == 2'b01 && wop.byteEnable[enableIndex])? maskedWrite.data[2*j+1 : 2*j ] :existing_tag;
                 end 
                 $display("cache core poison update", fshow(dataRead.data), fshow(maskedWrite_updated));                 
               end 
