@@ -192,7 +192,10 @@ module mkPoisonMultiLevelTagLookup #(
   // address to zero when in Init state
   Reg#(CheriPhyAddr) zeroAddr <- mkReg(tagTabStrtAddr);
   Reg#(CheriPhyAddr) zeroTagAddr <- mkReg(tagTabStrtAddr);
+  Reg#(CheriPhyAddr) updateTagRootAddr <- mkReg(tagTabStrtAddr);
+
   Reg#(CheriPhyAddr) zeroLeaf_start_Addr <- mkReg(tagTabStrtAddr);
+
 
   // transaction number for memory requests
   Reg#(CheriTransactionID) transNum <- mkReg(0);
@@ -218,6 +221,7 @@ module mkPoisonMultiLevelTagLookup #(
   // current lookup's depth
   Reg#(TDepth)    currentDepth     <- mkReg(unpack(0));
   Reg#(PoisonCapNumber) pendingCapNumber <- mkReg(unpack(0));
+  Reg#(PoisonCapNumber) updateLoopCapNumber <- mkReg(unpack(0));
   Reg#(LineTags) pendingTags <- mkReg(unpack(0));
   Reg#(LineTags) pendingCapEnable <- mkReg(unpack(0));
 
@@ -361,6 +365,69 @@ module mkPoisonMultiLevelTagLookup #(
     return mReq;
   endfunction
 
+  function CheriMemRequest craftMultiTagWriteReq (
+    TDepth d, // depth in the table
+    PoisonCapNumber cn, // capability number targetted
+    Vector#(512,Bool) ts, // tags
+    Vector#(512,Bool) ce, // "cap enable"
+    Maybe#(TableLvl) nz); // need zeroing
+    // prepare address
+    CheriPhyBitAddr a = getTableAddr(d,cn);
+    CheriPhyByteOffset byteOffset = a.byteAddr.byteOffset;
+    Bit#(128) bitOffset = extend(a.bitOffset);
+
+    Bool z = False; // no zeroing detected yet...
+
+    // prepare byte enable
+    Vector#(CheriBusBytes, Bool) wbyteE = replicate(False);
+    if (nz matches tagged Valid .t) begin
+      z = True; // we need zeroing
+      Integer i = 0;
+      CheriPhyByteOffset nodeOffset = byteOffset&(~0 << (t.groupFactorLog - 3));
+      for (i = 0; i < (div(t.groupFactor,8)); i = i + 1) begin
+        wbyteE[nodeOffset+fromInteger(i)] = True;
+      end
+    end
+    for( Integer j =0; j< 16;j= j+1) begin 
+      wbyteE[byteOffset+fromInteger(j)] = True;
+    end
+    // prepare bit enable and new data
+    Bit#(8) wbitE   = z ? ~0 : 0;
+    Bit#(512) newData = 0;
+    Vector#(512,Bool) leafData = zipWith(andBool,ts,ce);
+    newData = pack(ts);
+    /*
+    if (d == leafLvl) begin
+      Integer i = 0;
+      for (i = 0; i < valueOf(128); i = i + 1) begin
+        //wbitE[bitOffset+fromInteger(i)] = z ? 1 : pack(ce[i]);
+        newData[bitOffset+fromInteger(i)] = pack(leafData[i]);
+      end
+    end else begin
+     // wbitE[bitOffset] = 1;
+      newData[bitOffset] = pack(any(id,leafData));
+    end
+    */
+    CheriMemRequest mReq = defaultValue;
+    mReq.addr            = a.byteAddr;
+    mReq.masterID        = mID;
+    mReq.transactionID   = transNum;
+    CheriData wdata = Data {
+                cap: unpack(0),
+                data: zeroExtend(newData) << {byteOffset,3'b0}
+              };
+    mReq.operation = tagged Write {
+                          uncached: False,
+                          conditional: False,
+                          byteEnable: wbyteE,
+                          bitEnable: unpack(-1),
+                          data: wdata,
+                          last: True,
+                          length: 0
+                        };
+    return mReq;
+  endfunction
+
   function Action doTransition (
     Maybe#(CheriMemRequest) mmr,
     TDepth newDepth,
@@ -399,24 +466,12 @@ module mkPoisonMultiLevelTagLookup #(
 
   // module rules
   /////////////////////////////////////////////////////////////////////////////
+  Reg#(Bool) updateRoot_done <- mkReg(False);
   rule zeroLeafLoop(state ==ZeroLeaf);
-    TableLvl t = tableDesc[leafLvl];
     $display("zeroLeafLoop start");
-    if (zeroTagAddr < unpack(pack(zeroLeaf_start_Addr) + fromInteger(1))) begin
-      CheriMemRequest mReq = defaultValue;
-      mReq.addr            = zeroTagAddr;
-      mReq.masterID        = mID;
-      mReq.transactionID   = transNum;
-      mReq.operation       = tagged Write {
-                                      uncached: False,
-                                      conditional: False,
-                                      byteEnable: unpack(-1),//unpack(extend(64'hFFFFFFFFFFFFFFFF)),
-                                      bitEnable: -1,
-                                      data: unpack(extend(leafUpdateTags)),
-                                      length: 0,
-                                      last: True
-                                    };
-      // send memory request
+    
+      CheriMemRequest mReq = craftMultiTagWriteReq(leafLvl,updateLoopCapNumber,unpack(extend(leafUpdateTags)),unpack(512'hFFFF),tagged Valid tableDesc[leafLvl]);
+      mReq.poison_operation = 4'b0010;
       tagCacheReq.enq(mReq);
       useNextRsp.enq(False);
       debug2("ptaglookup",
@@ -426,11 +481,7 @@ module mkPoisonMultiLevelTagLookup #(
       ));
       // increment transaction number and address
       transNum <= transNum + 1;
-      zeroTagAddr.lineNumber <= zeroTagAddr.lineNumber + 1;
-
-    end else begin 
-      state <= Idle;
-    end 
+      state <= Idle; 
   endrule 
   // initialisation rule
   /////////////////////////////////////////////////////////////////////////////
@@ -735,7 +786,9 @@ module mkPoisonMultiLevelTagLookup #(
               if(req.poison_operation == 4'b0010) begin 
                 
                 state <= ZeroLeaf;
+                updateLoopCapNumber <= capAddr.capNumber;
                 zeroTagAddr <= getTableAddr(leafLvl,capAddr.capNumber).byteAddr;
+                updateTagRootAddr <= getTableAddr(rootLvl,capAddr.capNumber).byteAddr;
                 zeroLeaf_start_Addr <= getTableAddr(leafLvl,capAddr.capNumber).byteAddr;
                 Bit#(128) temp_tags =0; 
                 for (Integer i = 0; i < 64; i= i+ 1) begin 
@@ -746,6 +799,7 @@ module mkPoisonMultiLevelTagLookup #(
                 doTagLookup = False;
               end else begin 
                 mReq = craftTagWriteReq(rootLvl,capAddr.capNumber,capTags,capEnable,tagged Invalid);
+                mReq.poison_operation = 4'b0;
                 nextState = SetTag;
               end 
             end

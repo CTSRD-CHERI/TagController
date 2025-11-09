@@ -1441,7 +1441,22 @@ module mkCacheCore#(Integer cacheId,
               // In this case it is just selecting the old byte or new byte based on byteEnable.
               Vector#(CheriBusBytes,Byte) maskedWriteVec = zipWith3(choose, unpack(dataRead.data), unpack(wop.data.data), wop.byteEnable);
               DataMinusCapTags#(CheriDataWidth) maskedWrite;
+              DataMinusCapTags#(CheriDataWidth) maskedWrite_updated;
               maskedWrite.data = pack(maskedWriteVec);
+              maskedWrite_updated = maskedWrite;
+              if(req.poison_operation == 4'b0010) begin 
+                for (Integer j =0; j < valueOf(CheriDataWidth)/2; j= j + 1) begin 
+                  Bit#(2) existing_tag = dataRead.data[2*j+1 : 2*j ];
+                  maskedWrite_updated.data[2*j+1 : 2*j ] = existing_tag == 2'b01 ? maskedWrite.data[2*j+1 : 2*j ] :existing_tag;
+                end 
+                $display("cache core poison update", fshow(dataRead.data), fshow(maskedWrite_updated));
+              end else if (req.poison_operation == 4'b0011) begin 
+                for (Integer j =0; j < valueOf(CheriDataWidth)/2; j= j + 1) begin 
+                  Bit#(2) existing_tag = dataRead.data[2*j+1 : 2*j ];
+                  maskedWrite_updated.data[2*j+1 : 2*j ] = existing_tag == 2'b10 ? maskedWrite.data[2*j+1 : 2*j ] :existing_tag;
+                end 
+                $display("cache core poison update", fshow(dataRead.data), fshow(maskedWrite_updated));                 
+              end 
               `ifdef USECAP
                 // Fold in capability tags.
                 CapTags capTags = tag.capTags[addr.bank];
@@ -1463,8 +1478,8 @@ module mkCacheCore#(Integer cacheId,
               `endif
               //Write updated line to cache.
               debug2("CacheCore", $display("<time %0t, cache %0d, CacheCore> wrote cache bank %x, way %x with %x",$time, cacheId, 
-                                           {addr.key, pack(addr.bank)}, way, maskedWrite));
-              dataRead = maskedWrite;
+                                           {addr.key, pack(addr.bank)}, way, maskedWrite_updated));
+              dataRead = maskedWrite_updated;
               data[way].write(DataKey{key:addr.key, bank:addr.bank}, dataRead);
               `ifdef WRITEBACK_DCACHE
                 if (supportDirtyBytes) begin
