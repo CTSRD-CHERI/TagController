@@ -41,11 +41,15 @@ module [Module] mkTestPoisonMemTopSingle (Empty);
     if(counter < 1280) 
       counter <= counter+1;
     if(counter ==1) begin 
-      dutClient.store_simple(unpack({4'b1, 13'b0000}), unpack(0), 2'b01);
+      dutClient.store_simple(unpack({4'b1, 13'b0000}), unpack(4096*0), 2'b01);
+     //dutClient.store_simple(unpack({4'b1, 13'b0000}), unpack(4096), 2'b10);
       //dutClient.load( unpack(0));
     end 
+    else if (counter == 100) begin 
+    end 
     else if (counter ==1280 ) begin
-      dutClient.store_simple(unpack({4'b1, 13'b0000}), unpack(0), 2'b10);
+      dutClient.store_simple(unpack({4'b1, 13'b0000}), unpack(4096*0), 2'b10);
+
       //dutClient.store_simple(unpack({4'b1, 13'b0000}), unpack(4096), 2'b01);
       state <= WaitWriteResponse;
       //dutClient.store(unpack({4'b1, 13'b0000}), unpack(0), 2'b11);
@@ -59,6 +63,7 @@ module [Module] mkTestPoisonMemTopSingle (Empty);
 
   rule readResponse( state == WaitWriteResponse);
     //$display("resp write poison");
+    dutClient.store_simple(unpack({4'b1, 13'b0000}), unpack(4096*0), 2'b11);
     counter <= 0;
     //let resp <- dutClient.getResponse();
     // //if(dutClient.canGetResponse)
@@ -71,7 +76,7 @@ module [Module] mkTestPoisonMemTopSingle (Empty);
     if(counter ==1) begin 
       //dutClient.load( unpack(5'b00001));
       //dutClient.load_simple( 32'h1000);
-      dutClient.load_simple( unpack(4032));
+      dutClient.load_simple( unpack(4096*0));
       //dutClient.store(unpack({1'b1, 16'b0000}), unpack(0));
       $display("read_req ");
     end 

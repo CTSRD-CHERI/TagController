@@ -1455,7 +1455,7 @@ module mkCacheCore#(Integer cacheId,
                 for (Integer j =0; j < valueOf(CheriDataWidth)/2; j= j + 1) begin 
                   Bit#(2) existing_tag = dataRead.data[2*j+1 : 2*j ];
                   Integer enableIndex = j/8;
-                  maskedWrite_updated.data[2*j+1 : 2*j ] = (existing_tag == 2'b01 && wop.byteEnable[enableIndex])? maskedWrite.data[2*j+1 : 2*j ] :existing_tag;
+                  maskedWrite_updated.data[2*j+1 : 2*j ] = (existing_tag == 2'b10 && wop.byteEnable[enableIndex])? maskedWrite.data[2*j+1 : 2*j ] :existing_tag;
                 end 
                 $display("cache core poison update", fshow(dataRead.data), fshow(maskedWrite_updated));                 
               end 

@@ -236,7 +236,12 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
       pmreq.poison_operation = 4'b0010;
       ptagCon.cache.request.put(pmreq);
       dummy_tagRsps.enq(rsp);
-      debug2("tagcontroller", $display("Poison TagController zero poison request ", fshow(awreq), " - ", fshow(wreq)));      
+      debug2("tagcontroller", $display("Poison TagController zero poison request ", fshow(awreq), " - ", fshow(wreq))); 
+    end else if (awreq.awuser == 4'b0011) begin 
+      pmreq.poison_operation = 4'b0011;
+      ptagCon.cache.request.put(pmreq);
+      dummy_tagRsps.enq(rsp);
+      debug2("tagcontroller", $display("Poison TagController zero poison request ", fshow(awreq), " - ", fshow(wreq)));     
     end else begin 
 `endif 
       let rsp = CheriMemResponse{

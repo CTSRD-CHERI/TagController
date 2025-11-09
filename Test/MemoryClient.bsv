@@ -248,7 +248,7 @@ module mkMemoryClient#(AXI4_Slave#(idWidth, addrWidth, 512, 4, CapsPerFlit, 0, 1
     idCount <= idCount + 1;
     addrReq.awcache = 4'b1011;
     addrReq.awaddr = truncate(fullAddr);
-    addrReq.awuser = extend(mode);
+    addrReq.awuser = zeroExtend(mode);
     axiSlave.aw.put(addrReq);
     AXI4_WFlit#(512, 4) dataReq = defaultValue;
     match {.t, .d} = fromData(data);

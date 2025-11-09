@@ -226,6 +226,7 @@ module mkPoisonMultiLevelTagLookup #(
   Reg#(LineTags) pendingCapEnable <- mkReg(unpack(0));
 
   Reg#(Bit#(128))  leafUpdateTags <-mkReg(0);
+  Reg#(Bit#(4))    poperation <-mkReg(0);
   Vector#(tdepth,Reg#(Bit#(CheriDataWidth))) oldTags <- replicateM(mkReg(unpack(0)));
 
   // module helper functions
@@ -471,7 +472,7 @@ module mkPoisonMultiLevelTagLookup #(
     $display("zeroLeafLoop start");
     
       CheriMemRequest mReq = craftMultiTagWriteReq(leafLvl,updateLoopCapNumber,unpack(extend(leafUpdateTags)),unpack(512'hFFFF),tagged Valid tableDesc[leafLvl]);
-      mReq.poison_operation = 4'b0010;
+      mReq.poison_operation = poperation;
       tagCacheReq.enq(mReq);
       useNextRsp.enq(False);
       debug2("ptaglookup",
@@ -783,6 +784,7 @@ module mkPoisonMultiLevelTagLookup #(
               nextState = ClearTag;
             end else begin
               // when writing at least a 1
+              poperation <= req.poison_operation;
               if(req.poison_operation == 4'b0010) begin 
                 
                 state <= ZeroLeaf;
@@ -795,7 +797,20 @@ module mkPoisonMultiLevelTagLookup #(
                   temp_tags[2*i+1:2*i] = 2'b10;
                 end 
                 leafUpdateTags <= temp_tags;
-                $display("zeroLeaf request", getTableAddr(leafLvl,capAddr.capNumber).byteAddr);
+                $display("zeroLeaf old request", getTableAddr(leafLvl,capAddr.capNumber).byteAddr);
+                doTagLookup = False;
+              end else if (req.poison_operation == 4'b0011) begin
+                state <= ZeroLeaf;
+                updateLoopCapNumber <= capAddr.capNumber;
+                zeroTagAddr <= getTableAddr(leafLvl,capAddr.capNumber).byteAddr;
+                updateTagRootAddr <= getTableAddr(rootLvl,capAddr.capNumber).byteAddr;
+                zeroLeaf_start_Addr <= getTableAddr(leafLvl,capAddr.capNumber).byteAddr;
+                Bit#(128) temp_tags =0; 
+                for (Integer i = 0; i < 64; i= i+ 1) begin 
+                  temp_tags[2*i+1:2*i] = 2'b11;
+                end 
+                leafUpdateTags <= temp_tags;
+                $display("zeroLeaf zero request", getTableAddr(leafLvl,capAddr.capNumber).byteAddr);
                 doTagLookup = False;
               end else begin 
                 mReq = craftTagWriteReq(rootLvl,capAddr.capNumber,capTags,capEnable,tagged Invalid);
