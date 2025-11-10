@@ -30,7 +30,7 @@
 import DefaultValue::*;
 import AXI4::*;
 import MemTypesCHERI::*;
-//import Fabric_Defs::*;
+import Fabric_Defs::*;
 
 typedef struct {
   AXI4_AWFlit#(id_, addr_, tag_) aw;
@@ -90,7 +90,8 @@ function CheriMemRequest axi2mem_req(MemReq#(id_, addr_) mr)
                         last: w.w.wlast,
                         length: w.aw.awlen
                     },
-        cancelled: False
+        cancelled: False,
+        poison_operation: 4'b0
       };
       req.addr.byteOffset = 0;
     end
@@ -109,7 +110,8 @@ function CheriMemRequest axi2mem_req(MemReq#(id_, addr_) mr)
                         bytesPerFlit: unpack(pack(r.arsize)),
                         tagOnlyRead: r.aruser[0] == 1'b1
                     },
-        cancelled: False
+        cancelled: False,
+	poison_operation: 4'b0
       };
     end
   endcase
@@ -235,7 +237,8 @@ function CheriMemResponse axi2mem_rsp(DRAMRsp#(id_) mr)
         transactionID: req_id.transactionID,
         error: NoError,
         data: ?,
-        operation: tagged Write
+        operation: tagged Write,
+	isZeroed: unpack(0)
       };
     end
     tagged Read .r: begin
@@ -245,6 +248,7 @@ function CheriMemResponse axi2mem_rsp(DRAMRsp#(id_) mr)
         transactionID: req_id.transactionID,
         error: NoError,
         data: Data{cap: ?, data: r.rdata},
+	isZeroed: unpack(0),
         operation: tagged Read {last: r.rlast, tagOnlyRead: False} // XXX support for CLoadTags lost by AXI conversion
       };
     end
@@ -263,6 +267,7 @@ function CheriMemResponse axi2mem_widersp(DRAMRsp_wide#(id_) mr)
         transactionID: req_id.transactionID,
         error: NoError,
         data: ?,
+	isZeroed: unpack(0),
         operation: tagged Write
       };
     end
@@ -272,6 +277,7 @@ function CheriMemResponse axi2mem_widersp(DRAMRsp_wide#(id_) mr)
         masterID: req_id.masterID,
         transactionID: req_id.transactionID,
         error: NoError,
+	isZeroed: unpack(0),
         data: Data{cap: ?, data: r.rdata},
         operation: tagged Read {last: r.rlast, tagOnlyRead: False} // XXX support for CLoadTags lost by AXI conversion
       };

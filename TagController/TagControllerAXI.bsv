@@ -46,7 +46,7 @@ import FIFO::*;
 import FIFOF::*;
 import Clocks :: *;
 import Debug::*;
-//import Fabric_Defs::*;
+import Fabric_Defs::*;
 `ifdef PERFORMANCE_MONITORING
 import PerformanceMonitor :: *;
 import Vector :: *;
@@ -59,7 +59,7 @@ import CacheCore :: *;
  * A wrapper around the CHERI tag controller to export an AXI interface.
  *
  *****************************************************************************/
-typedef 512  Wd_Data;
+//typedef 512  Wd_Data;
 
 interface TagControllerAXI#(
   numeric type id_,
@@ -223,7 +223,8 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
         transactionID: mreq.transactionID,
         error: NoError,
         data: ?,
-        operation: tagged Write
+        operation: tagged Write,
+	isZeroed:?
       };
     if(awreq.awuser == 4'b1) begin 
       pmreq.poison_operation = 4'b1;
@@ -249,7 +250,8 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
         transactionID: mreq.transactionID,
         error: NoError,
         data: unpack(0),
-        operation: tagged Write
+        operation: tagged Write,
+	isZeroed: ?
       };
       poison_tagRsps.enq(rsp);
       tagCon.cache.request.put(mreq);

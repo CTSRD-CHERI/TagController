@@ -187,7 +187,8 @@ module mkTagController(TagControllerIfc);
         transactionID: respID.transactionID,
         error: NoError,
         operation: tagged Read{last: True, tagOnlyRead: True},
-        data: unpack(0)
+        data: unpack(0),
+	isZeroed: unpack(0)
     };
     case (tagOnlyRsp.d.dat.rsp.tags) matches
       tagged Covered .ts : newResp.data.data = zeroExtend(pack(ts));

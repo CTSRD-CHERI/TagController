@@ -311,7 +311,8 @@ instance DefaultValue#(MemoryRequest#(a,b,c,d))
             masterID:       unpack(0),
             transactionID:  unpack(0),
             operation:      tagged CacheOp defaultValue,
-            cancelled:      False
+            cancelled:      False,
+	    poison_operation: 4'b0
         };
 endinstance
 
@@ -434,7 +435,8 @@ instance DefaultValue#(MemoryResponse#(a,b,c))
             transactionID:  unpack(0),
             error:          NoError,
             data:           ?,
-            operation:      tagged Write
+            operation:      tagged Write,
+	    isZeroed:       unpack(0)
         };
 endinstance
 
