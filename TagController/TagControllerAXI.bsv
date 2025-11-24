@@ -309,7 +309,7 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
         if(r.rdata == 1) begin 
           use_poison_response = True;
           let new_r = r;
-          new_r.rdata = 512'h12345678;
+          new_r.rdata = {64'hffbec00000d38343, 64'h0, 64'hffbec00000d38343, 64'h0, 64'hffbec00000d38343, 64'h0,64'hffbec00000d38343, 64'h0};
           new_r.ruser = 4'b1111;
           shimSlave.master.r.put(new_r);
           $display("poison_ar read", fshow(new_r));

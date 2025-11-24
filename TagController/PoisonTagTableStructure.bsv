@@ -28,7 +28,7 @@
 
 import Vector::*;
 Vector#(2, Integer) tableStructure = cons(0, cons(128, nil));
-Integer table_end_addr = 'h16ffff000;
-Integer table_start_addr = 'h16e7cf100;
-Integer covered_start_addr = 'hc0000000;
-Integer covered_mem_size  = 'hbfff0000;
+Integer table_end_addr = 'hbf7df090;
+Integer table_start_addr = 'haf7df090;
+Integer covered_start_addr = 'h80000000;
+Integer covered_mem_size  = 'h3fff0000;
