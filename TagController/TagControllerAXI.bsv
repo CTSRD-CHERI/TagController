@@ -231,6 +231,8 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
       poison_mRsps.enq(rsp);
       ptagCon.cache.request.put(pmreq);
       dummy_tagRsps.enq(rsp);
+        $display("tag controller poison write");
+
       debug2("tagcontroller", $display("Poison TagController write request ", fshow(awreq), " - ", fshow(wreq)));
     end else if (awreq.awuser == 4'b0010) begin 
       poison_mRsps.enq(rsp);
@@ -304,7 +306,7 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
       tagged Write .w :
         $display("poison_ar write", fshow(w));
       tagged Read  .r : begin 
-        if(r.rdata !=0) begin 
+        if(r.rdata == 1) begin 
           use_poison_response = True;
           let new_r = r;
           new_r.rdata = 512'h12345678;
@@ -381,8 +383,13 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
   rule passMemoryResponseWrite;
     let rsp <- get(shimMaster.slave.b);
     CheriMemResponse mr = axi2mem_rsp(Write(rsp));
-    tagCon.memory.response.put(mr);
-    debug2("tagcontroller", $display("Memory write response ", fshow(rsp)));
+    if (mr.masterID == 2) begin   
+      ptagCon.memory.response.put(mr); 
+      debug2("ptagcontroller", $display("Poison Memory write response ", fshow(rsp)));
+    end else begin 
+      tagCon.memory.response.put(mr);
+      debug2("tagcontroller", $display("Memory write response ", fshow(rsp)));
+    end 
   endrule
   rule passMemoryResponseRead;
     let rsp <- get(shimMaster.slave.r);

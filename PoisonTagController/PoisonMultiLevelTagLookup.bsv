@@ -215,7 +215,7 @@ module mkPoisonMultiLevelTagLookup #(
   PulseWire                    getReq <- mkPulseWire();
   // tag cache CacheCore module
   CacheCore#(4, TSub#(Indices,2), 1)  tagCache <- mkCacheCore(
-    1, WriteAllocate, RespondAll, TCache,
+    2, WriteAllocate, RespondAll, TCache,
     zeroExtend(mReqs.remaining()), ff2fifof(mReqs), ff2fifof(mRsps));
 
   // current lookup's depth
