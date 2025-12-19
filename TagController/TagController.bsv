@@ -91,7 +91,7 @@ typedef struct {
 typedef TLog#(TDiv#(CapWidth, CheriDataWidth)) LogFlitsPerCap;
 typedef TMax#(TDiv#(CheriDataWidth,CapWidth), 1) CapsPerFlit;
 typedef enum {TagLookupReq, StdReq} MemReqType deriving (FShow, Bits, Eq);
-typedef 4 InFlight;
+typedef 16 InFlight;
 typedef 8 MaxBurstLength;
 typedef Bit#(TLog#(MaxBurstLength)) Frame;
 typedef Bit#(8) ReqIdCount;
