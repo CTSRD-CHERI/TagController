@@ -49,7 +49,7 @@
 `endif
 
 typedef 8 MaxTransactions;
-typedef 8 MaxNoOfFlits;
+typedef 32 MaxNoOfFlits;
 typedef MaxNoOfFlits CheriBurstSize;
 
 `ifdef CapWidth
