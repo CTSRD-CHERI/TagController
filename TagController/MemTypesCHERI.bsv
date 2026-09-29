@@ -114,21 +114,9 @@ instance Ord#(PhyByteAddress#(a,b));
     endfunction
 endinstance
 
-// physical address for cheri
-`ifdef CheriBusBytes
-  typedef `CheriBusBytes CheriBusBytes;
-`else
-// XXX: Old compatibility definitions; migrate to CheriBusBytes and delete
-`ifdef MEM512
-  typedef 64 CheriBusBytes;
-`elsif MEM128
-  typedef 16 CheriBusBytes;
-`elsif MEM64
-  typedef 8 CheriBusBytes;
-`else
-  typedef 32 CheriBusBytes;
-`endif
-`endif
+// Physical address and datapath configuration for CHERI memory.
+import TagControllerConfig :: *;
+typedef TagControllerBusBytes CheriBusBytes;
 BytesPerFlit cheriBusBytes = unpack(fromInteger(valueOf(TLog#(CheriBusBytes))));
 typedef 40 AddrWidth;
 `ifdef USECAP
