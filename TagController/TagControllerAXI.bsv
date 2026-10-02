@@ -56,7 +56,7 @@ import CacheCore :: *;
  *
  * A wrapper around the CHERI tag controller to export an AXI interface.
  *
- *****************************************************************************/
+ **************************************************************************** */
 
 interface TagControllerAXI#(
   numeric type id_,
@@ -214,7 +214,7 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
   rule passCacheRead(!writeBurst);
     let ar <- get(shimSlave.master.ar);
     tagCon.cache.request.put(axi2mem_req(Read(ar)));
-    //printDbg(dbg, $format("TagController read request ", fshow(ar)));
+    $display("TagController read request ", fshow(ar));
   endrule
   rule passCacheResponse;
     CheriMemResponse mr <- tagCon.cache.response.get();
@@ -223,7 +223,7 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
       tagged Write .w: shimSlave.master.b.put(w);
       tagged Read  .r: shimSlave.master.r.put(r);
     endcase
-    //printDbg(dbg, $format("TagController response ", fshow(ar)));
+    $display("TagController response ", fshow(ar));
   endrule
 
   // Rules to forward requests from the tag controller to the master AXI interface.
@@ -244,7 +244,7 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
       end
       tagged Read .r: shimMaster.slave.ar.put(r);
     endcase
-    debug2("tagcontroller", $display("Memory request ", fshow(ar)));
+    $display("Memory request ", fshow(ar));
   endrule
   (* descending_urgency = "passMemoryResponseRead, passMemoryResponseWrite" *)
   rule passMemoryResponseWrite;
@@ -257,7 +257,7 @@ module mkDbgTagControllerAXI#(Maybe#(String) dbg)(TagControllerAXI#(id_, addr_,W
     let rsp <- get(shimMaster.slave.r);
     CheriMemResponse mr = axi2mem_rsp(Read(rsp));
     tagCon.memory.response.put(mr);
-    debug2("tagcontroller", $display("Memory read response ", fshow(rsp)));
+    $display("Memory read response ", fshow(rsp));
   endrule
 
   method clear if (reset_done) = action

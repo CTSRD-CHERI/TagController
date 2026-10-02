@@ -63,7 +63,7 @@ import MultiLevelTagLookup::*;
  * Read responses are amended with the correct tag value and write requests update
  * the value in the tag cache (which is later written back to memory).
  *
- *****************************************************************************/
+ **************************************************************************** */
 
 // interface types
 ///////////////////////////////////////////////////////////////////////////////
@@ -221,12 +221,12 @@ module mkTagController(TagControllerIfc);
   Bool memoryCanGet = mReqBurst.notEmpty || tagLookup.memory.request.canGet;
 
   // Comment in when debugging flow control.
-/*  rule debug;
-    debug2("tagcontroller", $display("<time %0t TagController> slvCanPut:%x tagLookup.cache.request.canPut(1):%x tagLookup.memory.request.canGet(0):%x mReqs.notFull(1):%x",
-                                     $time, slvCanPut, tagLookup.cache.request.canPut(), tagLookup.memory.request.canGet(), mReqs.notFull()));
-    debug2("tagcontroller", $display("<time %0t TagController> slvCanGet:%x tagRsp.v(1):%x untrackedResponse(1):%x",
-                                     $time, slvCanGet, tagRsp.v, untrackedResponse));
-  endrule*/
+  rule debug(mReqs.notEmpty());
+    $display("<time %0t TagController> slvCanPut:%x tagLookup.cache.request.canPut(1):%x tagLookup.memory.request.canGet(0):%x mReqs.notFull(1):%x",
+                                     $time, slvCanPut, tagLookup.cache.request.canPut(), tagLookup.memory.request.canGet(), mReqs.notFull());
+    $display("<time %0t TagController> slvCanGet:%x tagRsp.v(1):%x untrackedResponse(1):%x",
+                                     $time, slvCanGet, tagRsp.v, untrackedResponse);
+  endrule
 
   // module Slave interface
   /////////////////////////////////////////////////////////////////////////////
@@ -321,7 +321,7 @@ module mkTagController(TagControllerIfc);
             memoryResponseFrame <= 0;  // reset the current frame
           end else memoryResponseFrame <= memoryResponseFrame + 1; // for non last flits, increment frame
         end else memoryResponseFrame <= 0;
-        debug2("tagcontroller", $display("<time %0t TagController> Returning response: ", $time, fshow(resp)));
+        $display("<time %0t TagController> Returning response: ", $time, fshow(resp));
         return resp;
       endmethod
     endinterface
@@ -340,7 +340,7 @@ module mkTagController(TagControllerIfc);
           if (getLastField(mReqs.first)) mReqBurst.deq();
         end
         else let unused <- tagLookup.memory.request.get();
-        debug2("tagcontroller", $display("<time %0t TagController> request to memory (ForwardingMemoryRequest:%d): ", $time, mReqBurst.notEmpty, " ", fshow(memoryGetPeek)));
+        $display("<time %0t TagController> request to memory (ForwardingMemoryRequest:%d): ", $time, mReqBurst.notEmpty, " ", fshow(memoryGetPeek));
         return memoryGetPeek;
       endmethod
     endinterface
@@ -350,13 +350,13 @@ module mkTagController(TagControllerIfc);
       endmethod
       method Action put(CheriMemResponse r);
         MemReqType reqType = (r.masterID == mID) ? TagLookupReq : StdReq;
-        debug2("tagcontroller", $display("<time %0t TagController> response from memory: ", $time, fshow(reqType), " ", fshow(r)));
+        $display("<time %0t TagController> response from memory: ", $time, fshow(reqType), " ", fshow(r));
         if (reqType == TagLookupReq) begin
           tagLookup.memory.response.put(r);
-          debug2("tagcontroller", $display("<time %0t TagController> tag response", $time));
+          $display("<time %0t TagController> tag response", $time);
         end else begin
           mRsps.enq(r);
-          debug2("tagcontroller", $display("<time %0t TagController> memory response", $time));
+          $display("<time %0t TagController> memory response", $time);
         end
       endmethod
     endinterface
