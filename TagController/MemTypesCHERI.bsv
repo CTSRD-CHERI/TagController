@@ -142,7 +142,6 @@ Bit#(4) logLineMinusOne = fromInteger(valueOf(TSub#(LogLine, 1)));
 typedef UInt#(TLog#(MaxNoOfFlits)) Flit;
 typedef Bit#(TSub#(AddrWidth,TAdd#(TLog#(CheriBusBytes),2))) Line;
 
-typedef 64 CpuLineSize; // Largest line that we can serve tag transactions on.
 typedef Bit#(TLog#(TDiv#(CpuLineSize, CapBytes))) CapOffsetInLine;
 
 // bytes per flit
