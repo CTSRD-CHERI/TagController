@@ -88,7 +88,8 @@ typedef struct {
 // internal types
 ///////////////////////////////////////////////////////////////////////////////
 
-typedef TLog#(TDiv#(CapWidth, CheriDataWidth)) LogFlitsPerCap;
+typedef TMax#(TDiv#(CapWidth, CheriDataWidth), 1) FlitsPerCap;
+typedef TLog#(FlitsPerCap) LogFlitsPerCap;
 typedef TMax#(TDiv#(CheriDataWidth,CapWidth), 1) CapsPerFlit;
 typedef enum {TagLookupReq, StdReq} MemReqType deriving (FShow, Bits, Eq);
 typedef 8 InFlight;
@@ -203,7 +204,12 @@ module mkTagController(TagControllerIfc);
       // look at the tag lookup response
       case (tagRsp.d.rsp.tags) matches
         tagged Covered .ts : begin
-          CapOffsetInLine base = thisAddrFrame.d.bank + truncate(memoryResponseFrame >> valueOf(LogFlitsPerCap));
+          CapOffsetInLine frameCapOffset;
+          if (valueOf(CheriDataWidth) >= valueOf(CapWidth))
+            frameCapOffset = truncate(memoryResponseFrame) * fromInteger(valueOf(CapsPerFlit));
+          else
+            frameCapOffset = truncate(memoryResponseFrame >> valueOf(LogFlitsPerCap));
+          CapOffsetInLine base = thisAddrFrame.d.bank + frameCapOffset;
           for (Integer i = 0; i < valueOf(CapsPerFlit); i = i + 1)
             tags[i] = ts[base + fromInteger(i)];
         end
